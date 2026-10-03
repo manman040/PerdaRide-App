@@ -4,16 +4,31 @@ import '../../../app/app_router.dart';
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
+import '../../../core/firebase/account_status.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/auth_gradient_scaffold.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.notice});
+
+  /// Shown once when the screen opens, e.g. the "account disabled" message
+  /// after the app force-signs a user out.
+  final String? notice;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final notice = widget.notice;
+    if (notice != null && notice.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showMessage(notice));
+    }
+  }
+
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _authRepository = FirebaseAuthRepository(PerdaRideFirebase.instance);
@@ -21,6 +36,7 @@ class _LoginScreenState extends State<LoginScreen> {
       FirebaseDatabaseRepository(PerdaRideFirebase.instance);
   bool _showSignUpOptions = false;
   bool _isSigningIn = false;
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
@@ -31,23 +47,25 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return AuthGradientScaffold(
-      header: const Column(
+      header: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Hello',
+            copy.helloGreeting,
             style: TextStyle(
-              color: Color(0xFF1D1B1A),
+              color: theme.colorScheme.onSurface,
               fontSize: 30,
               fontWeight: FontWeight.w700,
             ),
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
-            'Sign in!',
+            copy.signInGreeting,
             style: TextStyle(
-              color: Color(0xFF1D1B1A),
+              color: theme.colorScheme.onSurface,
               fontSize: 30,
               fontWeight: FontWeight.w700,
             ),
@@ -58,7 +76,7 @@ class _LoginScreenState extends State<LoginScreen> {
         padding: const EdgeInsets.fromLTRB(28, 28, 28, 30),
         children: [
           const SizedBox(height: 8),
-          _InputLabel(label: 'Gmail'),
+          _InputLabel(label: copy.gmailLabel),
           TextField(
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
@@ -70,7 +88,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: 18),
           _InputLabel(
-            label: 'Password',
+            label: copy.passwordLabel,
             trailing: TextButton(
               onPressed: () {
                 Navigator.of(context).pushNamed(AppRouter.forgotPassword);
@@ -80,22 +98,32 @@ class _LoginScreenState extends State<LoginScreen> {
                 minimumSize: const Size(0, 0),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-              child: const Text(
-                'Forgot password?',
+              child: Text(
+                copy.forgotPasswordCta,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Color(0xFF715746),
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
             ),
           ),
           TextField(
             controller: _passwordController,
-            obscureText: true,
-            decoration: const InputDecoration(
+            obscureText: _obscurePassword,
+            decoration: InputDecoration(
               hintText: '.........',
-              prefixIcon: Icon(Icons.lock_outline_rounded),
-              suffixIcon: Icon(Icons.visibility_off_outlined, size: 18),
+              prefixIcon: const Icon(Icons.lock_outline_rounded),
+              suffixIcon: IconButton(
+                onPressed: () => setState(() {
+                  _obscurePassword = !_obscurePassword;
+                }),
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  size: 18,
+                ),
+              ),
             ),
           ),
           const SizedBox(height: 28),
@@ -125,18 +153,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   borderRadius: BorderRadius.circular(28),
                 ),
               ),
-              child: Text(_isSigningIn ? 'SIGNING IN...' : 'SIGN IN'),
+              child: Text(_isSigningIn ? copy.signingInCta : copy.signInCta),
             ),
           ),
           const SizedBox(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
-                "Don't have account?",
+              Text(
+                copy.noAccountPrompt,
                 style: TextStyle(
                   fontSize: 12,
-                  color: Color(0xFF9A8A7A),
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
               ),
               TextButton(
@@ -149,7 +177,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   padding: const EdgeInsets.only(left: 6),
                 ),
                 child: Text(
-                  _showSignUpOptions ? 'Close' : 'Sign up',
+                  _showSignUpOptions ? copy.closeLabel : copy.signUpLinkCta,
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFFF68B1F),
@@ -168,7 +196,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       children: [
                         _RoleOptionButton(
-                          label: 'Register as User',
+                          label: copy.registerAsUser,
                           onPressed: () {
                             Navigator.of(context).pushNamed(
                               AppRouter.userRegistration,
@@ -177,7 +205,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 12),
                         _RoleOptionButton(
-                          label: 'Register as Driver',
+                          label: copy.registerAsDriver,
                           onPressed: () {
                             Navigator.of(context).pushNamed(
                               AppRouter.driverRegistration,
@@ -195,11 +223,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signIn() async {
+    final copy = AppCopy.of(context);
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      _showMessage('Please enter email and password.');
+      _showMessage(copy.enterEmailPasswordError);
       return;
     }
 
@@ -214,7 +243,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       final user = credential.user;
       if (user == null) {
-        _showMessage('Login failed. Please try again.');
+        _showMessage(copy.loginFailedError);
         return;
       }
 
@@ -223,6 +252,15 @@ class _LoginScreenState extends State<LoginScreen> {
       final usersSnapshot = await _databaseRepository.getData('users/${user.uid}');
 
       if (!mounted) return;
+
+      // The admin panel disables accounts by writing status = 'disabled'.
+      if (AccountStatus.isDisabled(driverSnapshot.value) ||
+          AccountStatus.isDisabled(usersSnapshot.value)) {
+        await _authRepository.signOut();
+        if (!mounted) return;
+        _showMessage(copy.accountDisabledError);
+        return;
+      }
 
       if (driverSnapshot.exists) {
         final driverValue = driverSnapshot.value;
@@ -247,9 +285,9 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      _showMessage('Account profile not found. Please register again.');
+      _showMessage(copy.profileNotFoundError);
     } catch (e) {
-      _showMessage(_friendlySignInError(e.toString()));
+      _showMessage(_friendlySignInError(copy, e.toString()));
     } finally {
       if (mounted) {
         setState(() {
@@ -259,17 +297,17 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  String _friendlySignInError(String message) {
+  String _friendlySignInError(AppCopy copy, String message) {
     final lower = message.toLowerCase();
     if (lower.contains('invalid-credential') ||
         lower.contains('wrong-password') ||
         lower.contains('user-not-found')) {
-      return 'Invalid email or password.';
+      return copy.invalidCredentialError;
     }
     if (lower.contains('network-request-failed')) {
-      return 'Network issue. Please check your connection.';
+      return copy.networkIssueError;
     }
-    return 'Sign in failed. Please try again.';
+    return copy.signInFailedError;
     }
 
   void _showMessage(String message) {

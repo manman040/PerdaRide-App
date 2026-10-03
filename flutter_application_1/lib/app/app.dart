@@ -22,7 +22,7 @@ class PerdaRideApp extends StatelessWidget {
         builder: (context, _) {
           final state = _settingsController.value;
           return MaterialApp(
-            title: 'PerdaRide',
+            title: 'Urban Drive',
             debugShowCheckedModeBanner: false,
             theme: AppTheme.light(),
             darkTheme: AppTheme.dark(),

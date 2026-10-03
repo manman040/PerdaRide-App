@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/app_router.dart';
+import '../../../core/settings/app_copy.dart';
 import '../data/driver_registration_draft.dart';
 import 'registration_widgets.dart';
 
@@ -91,16 +92,18 @@ class _DriverVehicleDetailsScreenState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return RegistrationScaffold(
-      header: const RegistrationHeader(
-        title: 'Driver Registration',
-        subtitle: 'Step 2 of 3',
+      header: RegistrationHeader(
+        title: copy.driverRegistrationTitle,
+        subtitle: copy.driverRegistrationStep2Subtitle,
       ),
       child: Column(
         children: [
-          const SectionTitle('Vehicle Details'),
+          SectionTitle(copy.vehicleDetailsTitle),
           _DropdownField(
-            hint: 'Brand',
+            hint: copy.brandFieldLabel,
             value: _brandValue,
             items: _malaysiaBrands,
             onChanged: (value) {
@@ -110,14 +113,14 @@ class _DriverVehicleDetailsScreenState
               });
             },
           ),
-          RegistrationField(hint: 'Model', controller: _modelController),
+          RegistrationField(hint: copy.modelFieldLabel, controller: _modelController),
           RegistrationField(
-            hint: 'Plate Number',
+            hint: copy.plateNumberFieldLabel,
             controller: _plateController,
             textCapitalization: TextCapitalization.characters,
           ),
           _DropdownField(
-            hint: 'Years Make',
+            hint: copy.yearsMakeFieldLabel,
             value: _yearValue,
             items: _yearsMake,
             onChanged: (value) {
@@ -128,7 +131,7 @@ class _DriverVehicleDetailsScreenState
             },
           ),
           _DropdownField(
-            hint: 'Passenger Capacity',
+            hint: copy.capacityLabel,
             value: _capacityValue,
             items: _capacity,
             onChanged: (value) {
@@ -139,16 +142,19 @@ class _DriverVehicleDetailsScreenState
             },
           ),
           const SizedBox(height: 12),
-          const Text(
-            'Cars Photo',
-            style: TextStyle(fontSize: 14, color: Color(0xFF6E6258)),
+          Text(
+            copy.carsPhotoLabel,
+            style: TextStyle(
+              fontSize: 14,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 14),
           Row(
             children: [
               Expanded(
                 child: PicturePickerCard(
-                  label: 'Front',
+                  label: copy.frontLabel,
                   icon: Icons.add_a_photo_outlined,
                   imagePath: _frontPath,
                   onTap: () => _pickCarPhoto('front'),
@@ -157,7 +163,7 @@ class _DriverVehicleDetailsScreenState
               const SizedBox(width: 10),
               Expanded(
                 child: PicturePickerCard(
-                  label: 'Back',
+                  label: copy.backLabel,
                   icon: Icons.add_a_photo_outlined,
                   imagePath: _backPath,
                   onTap: () => _pickCarPhoto('back'),
@@ -170,7 +176,7 @@ class _DriverVehicleDetailsScreenState
             children: [
               Expanded(
                 child: PicturePickerCard(
-                  label: 'Left',
+                  label: copy.leftLabel,
                   icon: Icons.add_a_photo_outlined,
                   imagePath: _leftPath,
                   onTap: () => _pickCarPhoto('left'),
@@ -179,7 +185,7 @@ class _DriverVehicleDetailsScreenState
               const SizedBox(width: 10),
               Expanded(
                 child: PicturePickerCard(
-                  label: 'Right',
+                  label: copy.rightLabel,
                   icon: Icons.add_a_photo_outlined,
                   imagePath: _rightPath,
                   onTap: () => _pickCarPhoto('right'),
@@ -189,7 +195,7 @@ class _DriverVehicleDetailsScreenState
           ),
           const SizedBox(height: 24),
           RegistrationActionButton(
-            label: 'Continue',
+            label: copy.continueCta,
             onPressed: _continueToDocuments,
           ),
         ],
@@ -198,6 +204,7 @@ class _DriverVehicleDetailsScreenState
   }
 
   Future<void> _pickCarPhoto(String side) async {
+    final copy = AppCopy.of(context);
     try {
       final source = await _pickSource();
       if (source == null) return;
@@ -225,15 +232,14 @@ class _DriverVehicleDetailsScreenState
         }
       });
     } on MissingPluginException {
-      _showMessage(
-        'Image picker not ready yet. Run flutter pub get and fully restart app.',
-      );
+      _showMessage(copy.imagePickerNotReadyError);
     } on PlatformException catch (e) {
-      _showMessage('Unable to open picker: ${e.message ?? e.code}');
+      _showMessage('${copy.unableToOpenPickerPrefix} ${e.message ?? e.code}');
     }
   }
 
   Future<ImageSource?> _pickSource() async {
+    final copy = AppCopy.of(context);
     return showModalBottomSheet<ImageSource>(
       context: context,
       builder: (context) {
@@ -243,12 +249,12 @@ class _DriverVehicleDetailsScreenState
             children: [
               ListTile(
                 leading: const Icon(Icons.camera_alt_outlined),
-                title: const Text('Camera'),
+                title: Text(copy.cameraOption),
                 onTap: () => Navigator.of(context).pop(ImageSource.camera),
               ),
               ListTile(
                 leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Gallery'),
+                title: Text(copy.galleryOption),
                 onTap: () => Navigator.of(context).pop(ImageSource.gallery),
               ),
             ],
@@ -259,19 +265,20 @@ class _DriverVehicleDetailsScreenState
   }
 
   void _continueToDocuments() {
+    final copy = AppCopy.of(context);
     if (_brandValue == null ||
         _modelController.text.trim().isEmpty ||
         _plateController.text.trim().isEmpty ||
         _yearValue == null ||
         _capacityValue == null) {
-      _showMessage('Please complete all vehicle details.');
+      _showMessage(copy.completeVehicleDetailsError);
       return;
     }
     if (_frontPath == null ||
         _backPath == null ||
         _leftPath == null ||
         _rightPath == null) {
-      _showMessage('Please upload all 4 car photos: front, back, left, right.');
+      _showMessage(copy.uploadAllCarPhotosError);
       return;
     }
 

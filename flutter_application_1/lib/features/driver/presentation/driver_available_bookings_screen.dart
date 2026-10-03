@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../booking/data/booking_repository.dart';
 
 class DriverAvailableBookingsScreen extends StatefulWidget {
@@ -76,15 +77,16 @@ class _DriverAvailableBookingsScreenState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F2EE),
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1F1F1F),
+        backgroundColor: theme.colorScheme.surface,
+        foregroundColor: theme.colorScheme.onSurface,
         elevation: 0,
-        title: const Text(
-          'Available Bookings',
-          style: TextStyle(fontWeight: FontWeight.w800),
+        title: Text(
+          copy.availableBookingsTitle,
+          style: const TextStyle(fontWeight: FontWeight.w800),
         ),
       ),
       body: StreamBuilder(
@@ -94,13 +96,13 @@ class _DriverAvailableBookingsScreenState
             return const Center(child: CircularProgressIndicator());
           }
           if (!_isDriverOnline) {
-            return const Center(
+            return Center(
               child: Padding(
-                padding: EdgeInsets.all(24),
+                padding: const EdgeInsets.all(24),
                 child: Text(
-                  'You are offline. Turn ON your job toggle on dashboard to receive bookings.',
+                  copy.offlineBookingsMessage,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Color(0xFF666666)),
+                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                 ),
               ),
             );
@@ -110,10 +112,10 @@ class _DriverAvailableBookingsScreenState
             return const Center(child: CircularProgressIndicator());
           }
           if (bookings.isEmpty) {
-            return const Center(
+            return Center(
               child: Text(
-                'No available bookings right now.',
-                style: TextStyle(color: Color(0xFF666666)),
+                copy.noAvailableBookingsMessage,
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
               ),
             );
           }
@@ -126,6 +128,7 @@ class _DriverAvailableBookingsScreenState
               final item = bookings[index];
               return _BookingCard(
                 item: item,
+                copy: copy,
                 onSeeDetail: () => _showBookingDetail(context, item),
               );
             },
@@ -224,10 +227,12 @@ class _DriverAvailableBookingsScreenState
     BuildContext context,
     DriverBookingItem item,
   ) async {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     final action = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: theme.colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -245,27 +250,29 @@ class _DriverAvailableBookingsScreenState
                     width: 44,
                     height: 5,
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE1DBD3),
+                      color: theme.dividerColor,
                       borderRadius: BorderRadius.circular(99),
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
-                  'Booking Details',
+                Text(
+                  copy.bookingDetailsTitle,
                   style: TextStyle(
                     fontSize: 24,
                     fontWeight: FontWeight.w900,
-                    color: Color(0xFF1F1F1F),
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF8F0),
+                    color: theme.colorScheme.primary.withValues(alpha: 0.10),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFF6DEBF)),
+                    border: Border.all(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.35),
+                    ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -292,23 +299,25 @@ class _DriverAvailableBookingsScreenState
                 ),
                 const SizedBox(height: 12),
                 _detailRow(
+                  context: context,
                   icon: Icons.trip_origin_rounded,
                   color: const Color(0xFF2E7D32),
-                  title: 'Pickup',
+                  title: copy.pickupHistoryLabel,
                   value: item.pickupAddress,
                 ),
                 const SizedBox(height: 8),
                 _detailRow(
+                  context: context,
                   icon: Icons.place_rounded,
                   color: const Color(0xFFD84315),
-                  title: 'Dropoff',
+                  title: copy.dropoffHistoryLabel,
                   value: item.dropoffAddress,
                 ),
                 const SizedBox(height: 10),
                 Text(
                   item.packageLabel,
-                  style: const TextStyle(
-                    color: Color(0xFF626262),
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -318,7 +327,7 @@ class _DriverAvailableBookingsScreenState
                     Expanded(
                       child: OutlinedButton(
                         onPressed: () => Navigator.of(context).pop('reject'),
-                        child: const Text('Reject'),
+                        child: Text(copy.rejectCta),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -327,7 +336,7 @@ class _DriverAvailableBookingsScreenState
                         onPressed: _isAccepting
                             ? null
                             : () => Navigator.of(context).pop('accept'),
-                        child: Text(_isAccepting ? 'Accepting...' : 'Accept'),
+                        child: Text(_isAccepting ? copy.acceptingCta : copy.acceptCta),
                       ),
                     ),
                   ],
@@ -354,7 +363,7 @@ class _DriverAvailableBookingsScreenState
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Booking rejected.')),
+        SnackBar(content: Text(copy.bookingRejectedMessage)),
       );
       return;
     }
@@ -365,11 +374,12 @@ class _DriverAvailableBookingsScreenState
   }
 
   Future<void> _acceptBooking(DriverBookingItem item) async {
+    final copy = AppCopy.of(context);
     final user = _authRepository.currentUser;
     if (user == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Driver is not logged in.')),
+        SnackBar(content: Text(copy.driverNotLoggedInMessage)),
       );
       return;
     }
@@ -379,11 +389,17 @@ class _DriverAvailableBookingsScreenState
     });
 
     try {
-      await _bookingRepository.updateBookingStatus(
+      final claimed = await _bookingRepository.tryAcceptBooking(
         bookingId: item.bookingId,
-        status: 'accepted',
         driverId: user.uid,
       );
+      if (!claimed) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(copy.bookingAlreadyTakenMessage)),
+        );
+        return;
+      }
       // Notification writes should not block accepted booking flow.
       try {
         if (item.userId.isNotEmpty) {
@@ -419,7 +435,7 @@ class _DriverAvailableBookingsScreenState
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Accept failed: $e')),
+        SnackBar(content: Text('${copy.acceptFailedError}: $e')),
       );
     } finally {
       if (mounted) {
@@ -431,11 +447,13 @@ class _DriverAvailableBookingsScreenState
   }
 
   Widget _detailRow({
+    required BuildContext context,
     required IconData icon,
     required Color color,
     required String title,
     required String value,
   }) {
+    final theme = Theme.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -447,16 +465,16 @@ class _DriverAvailableBookingsScreenState
             children: [
               Text(
                 title,
-                style: const TextStyle(
-                  color: Color(0xFF666666),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 1),
               Text(
                 value,
-                style: const TextStyle(
-                  color: Color(0xFF303030),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
                   height: 1.3,
                 ),
               ),
@@ -471,18 +489,21 @@ class _DriverAvailableBookingsScreenState
 class _BookingCard extends StatelessWidget {
   const _BookingCard({
     required this.item,
+    required this.copy,
     required this.onSeeDetail,
   });
 
   final DriverBookingItem item;
+  final AppCopy copy;
   final VoidCallback onSeeDetail;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
         boxShadow: const [
           BoxShadow(
@@ -497,10 +518,10 @@ class _BookingCard extends StatelessWidget {
         children: [
           Text(
             item.priceLabel,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 30,
               fontWeight: FontWeight.w900,
-              color: Color(0xFF1F1F1F),
+              color: theme.colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 8),
@@ -508,18 +529,20 @@ class _BookingCard extends StatelessWidget {
             spacing: 6,
             runSpacing: 6,
             children: [
-              _chip(item.distanceLabel),
-              _chip(item.paymentMethod),
+              _chip(context, item.distanceLabel),
+              _chip(context, item.paymentMethod),
             ],
           ),
           const SizedBox(height: 10),
           _addressRow(
+            context: context,
             icon: Icons.trip_origin_rounded,
             color: const Color(0xFF2E7D32),
             text: item.pickupAddress,
           ),
           const SizedBox(height: 8),
           _addressRow(
+            context: context,
             icon: Icons.place_rounded,
             color: const Color(0xFFD84315),
             text: item.dropoffAddress,
@@ -527,8 +550,8 @@ class _BookingCard extends StatelessWidget {
           const SizedBox(height: 9),
           Text(
             item.packageLabel,
-            style: const TextStyle(
-              color: Color(0xFF666666),
+            style: TextStyle(
+              color: theme.colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -537,7 +560,7 @@ class _BookingCard extends StatelessWidget {
             width: double.infinity,
             child: ElevatedButton(
               onPressed: onSeeDetail,
-              child: const Text('See Detail Booking'),
+              child: Text(copy.seeDetailBookingCta),
             ),
           ),
         ],
@@ -545,18 +568,19 @@ class _BookingCard extends StatelessWidget {
     );
   }
 
-  Widget _chip(String text) {
+  Widget _chip(BuildContext context, String text) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6F2EC),
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE8DED2)),
+        border: Border.all(color: theme.dividerColor),
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          color: Color(0xFF5D5D5D),
+        style: TextStyle(
+          color: theme.colorScheme.onSurfaceVariant,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -564,10 +588,12 @@ class _BookingCard extends StatelessWidget {
   }
 
   Widget _addressRow({
+    required BuildContext context,
     required IconData icon,
     required Color color,
     required String text,
   }) {
+    final theme = Theme.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -576,8 +602,8 @@ class _BookingCard extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: const TextStyle(
-              color: Color(0xFF444444),
+            style: TextStyle(
+              color: theme.colorScheme.onSurface,
               height: 1.3,
             ),
           ),
@@ -594,17 +620,18 @@ class _DetailChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFFF4EFE8),
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE6DCCF)),
+        border: Border.all(color: theme.dividerColor),
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          color: Color(0xFF5D5D5D),
+        style: TextStyle(
+          color: theme.colorScheme.onSurfaceVariant,
           fontWeight: FontWeight.w600,
         ),
       ),

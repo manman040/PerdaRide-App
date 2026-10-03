@@ -12,7 +12,7 @@ void main() {
   testWidgets('PerdaRide app loads splash screen', (tester) async {
     await tester.pumpWidget(const PerdaRideApp());
 
-    expect(find.text('PerdaRide'), findsOneWidget);
+    expect(find.text('Urban Drive'), findsOneWidget);
     expect(find.text('Passenger and driver services in one app.'), findsOneWidget);
   });
 }

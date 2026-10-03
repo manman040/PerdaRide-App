@@ -4,6 +4,7 @@ import '../../../app/app_router.dart';
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/auth_gradient_scaffold.dart';
 
 class DriverPendingApprovalScreen extends StatefulWidget {
@@ -27,6 +28,9 @@ class _DriverPendingApprovalScreenState
   bool _isRefreshing = false;
   String _status = 'pending';
   String? _adminNotes;
+  List<String> _rejectedDocuments = const [];
+  String? _rejectionReason;
+  String? _rejectionMessage;
 
   @override
   void initState() {
@@ -53,6 +57,9 @@ class _DriverPendingApprovalScreenState
       final status = (rawStatus?.toString() ?? 'approved').trim();
 
       String? adminNotes;
+      List<String> rejectedDocuments = const [];
+      String? rejectionReason;
+      String? rejectionMessage;
       if (status != 'approved') {
         final approvalSnapshot = await _databaseRepository.getData(
           'driver_approvals/${user.uid}',
@@ -73,6 +80,15 @@ class _DriverPendingApprovalScreenState
               break;
             }
           }
+          rejectedDocuments = _extractRejectedDocuments(approvalValue);
+          final rawReason = approvalValue['rejection_reason'];
+          if (rawReason is String && rawReason.trim().isNotEmpty) {
+            rejectionReason = rawReason.trim();
+          }
+          final rawMessage = approvalValue['rejection_message'];
+          if (rawMessage is String && rawMessage.trim().isNotEmpty) {
+            rejectionMessage = rawMessage.trim();
+          }
         }
       }
 
@@ -88,6 +104,9 @@ class _DriverPendingApprovalScreenState
       setState(() {
         _status = status;
         _adminNotes = adminNotes;
+        _rejectedDocuments = rejectedDocuments;
+        _rejectionReason = rejectionReason;
+        _rejectionMessage = rejectionMessage;
         _isLoading = false;
       });
     } catch (_) {
@@ -95,6 +114,72 @@ class _DriverPendingApprovalScreenState
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  /// The admin backend writes rejected-document info three different ways
+  /// depending on when/how the reject happened -- prefer the explicit
+  /// `rejected_documents` array, fall back to `document_decisions`, then to
+  /// the individual `xRejected` booleans (the oldest/legacy format).
+  List<String> _extractRejectedDocuments(Map approvalValue) {
+    final rawList = approvalValue['rejected_documents'];
+    if (rawList is List) {
+      final docs = rawList
+          .map((e) => e.toString())
+          .where((e) => e.isNotEmpty)
+          .toList();
+      if (docs.isNotEmpty) return docs;
+    }
+
+    final decisions = approvalValue['document_decisions'];
+    if (decisions is Map) {
+      final docs = decisions.entries
+          .where(
+            (entry) => entry.value?.toString().toLowerCase() == 'rejected',
+          )
+          .map((entry) => entry.key.toString())
+          .toList();
+      if (docs.isNotEmpty) return docs;
+    }
+
+    const flagToDocType = {
+      'idCardRejected': 'idCard',
+      'licenseRejected': 'license',
+      'carGrantRejected': 'carGrant',
+      'carImageRejected': 'carImage',
+    };
+    final docs = <String>[];
+    flagToDocType.forEach((flag, docType) {
+      if (approvalValue[flag] == true) docs.add(docType);
+    });
+    return docs;
+  }
+
+  void _goToFixDocuments() {
+    Navigator.of(context)
+        .pushNamed(
+          AppRouter.driverDocumentResubmit,
+          arguments: {
+            'rejectedDocuments': _rejectedDocuments,
+            'rejectionReason': _rejectionReason,
+            'rejectionMessage': _rejectionMessage,
+          },
+        )
+        .then((_) => _refresh());
+  }
+
+  String _docTypeLabel(AppCopy copy, String docType) {
+    switch (docType) {
+      case 'idCard':
+        return copy.idCardDocLabel;
+      case 'license':
+        return copy.licenseDocLabel;
+      case 'carGrant':
+        return copy.carGrantDocLabel;
+      case 'carImage':
+        return copy.carImageDocLabel;
+      default:
+        return docType;
     }
   }
 
@@ -121,24 +206,30 @@ class _DriverPendingApprovalScreenState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     final rejected = _status == 'rejected';
+    final needsResubmission = _status == 'waiting_for_resubmission';
+    final statusAccent = (rejected || needsResubmission)
+        ? const Color(0xFFD96A43)
+        : const Color(0xFFF68B1F);
 
     return AuthGradientScaffold(
-      header: const Column(
+      header: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Driver',
-            style: TextStyle(
+            copy.driverRole,
+            style: const TextStyle(
               color: Color(0xFF1D1B1A),
               fontSize: 30,
               fontWeight: FontWeight.w700,
             ),
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
-            'Registration Status',
-            style: TextStyle(
+            copy.registrationStatusTitle,
+            style: const TextStyle(
               color: Color(0xFF1D1B1A),
               fontSize: 24,
               fontWeight: FontWeight.w700,
@@ -155,55 +246,102 @@ class _DriverPendingApprovalScreenState
                   width: double.infinity,
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: rejected
-                        ? const Color(0xFFFFEFE7)
-                        : const Color(0xFFFFF3E6),
+                    color: statusAccent.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: rejected
-                          ? const Color(0xFFF4C7B5)
-                          : const Color(0xFFF3C893),
+                      color: statusAccent.withValues(alpha: 0.4),
                     ),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Icon(
-                        rejected
+                        needsResubmission
+                            ? Icons.upload_file_rounded
+                            : rejected
                             ? Icons.cancel_rounded
                             : Icons.hourglass_top_rounded,
-                        color: rejected
-                            ? const Color(0xFFD96A43)
-                            : const Color(0xFFF68B1F),
+                        color: statusAccent,
                         size: 40,
                       ),
                       const SizedBox(height: 14),
                       Text(
-                        rejected
-                            ? 'Your registration was rejected'
-                            : 'Your driver registration is under review',
-                        style: const TextStyle(
+                        needsResubmission
+                            ? copy.resubmissionNeededTitle
+                            : rejected
+                            ? copy.registrationRejectedTitle
+                            : copy.registrationUnderReviewTitle,
+                        style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
-                          color: Color(0xFF1D1B1A),
+                          color: theme.colorScheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        rejected
-                            ? (_adminNotes ??
-                                  'Please contact support for more information.')
-                            : 'Our admin team is reviewing your submitted documents. '
-                                  'You will be able to access your driver dashboard once approved.',
-                        style: const TextStyle(
+                        needsResubmission
+                            ? (_rejectionMessage ??
+                                  _adminNotes ??
+                                  copy.resubmissionNeededDescription)
+                            : rejected
+                            ? (_adminNotes ?? copy.contactSupportMessage)
+                            : copy.registrationReviewDescription,
+                        style: TextStyle(
                           height: 1.45,
-                          color: Color(0xFF6A5541),
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
+                      if (needsResubmission &&
+                          _rejectedDocuments.isNotEmpty) ...[
+                        const SizedBox(height: 14),
+                        for (final docType in _rejectedDocuments)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.error_outline_rounded,
+                                  size: 16,
+                                  color: statusAccent,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  _docTypeLabel(copy, docType),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: theme.colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
                     ],
                   ),
                 ),
                 const SizedBox(height: 24),
+                if (needsResubmission) ...[
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(28),
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFF9B22), Color(0xFFF68B1F)],
+                      ),
+                    ),
+                    child: ElevatedButton(
+                      onPressed: _goToFixDocuments,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(28),
+                        ),
+                      ),
+                      child: Text(copy.fixDocumentsCta),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(28),
@@ -221,7 +359,7 @@ class _DriverPendingApprovalScreenState
                       ),
                     ),
                     child: Text(
-                      _isRefreshing ? 'Refreshing...' : 'Refresh Status',
+                      _isRefreshing ? copy.refreshingCta : copy.refreshStatusCta,
                     ),
                   ),
                 ),
@@ -235,7 +373,7 @@ class _DriverPendingApprovalScreenState
                       borderRadius: BorderRadius.circular(18),
                     ),
                   ),
-                  child: const Text('Log Out'),
+                  child: Text(copy.logOutCta),
                 ),
               ],
             ),

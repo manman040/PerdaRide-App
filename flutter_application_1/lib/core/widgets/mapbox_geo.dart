@@ -1,12 +1,21 @@
 import 'package:latlong2/latlong.dart';
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart' as mb;
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 extension LatLngMapboxX on LatLng {
-  mb.Point toMapboxPoint() =>
-      mb.Point(coordinates: mb.Position(longitude, latitude));
+  Position toMapboxPosition() => Position(longitude, latitude);
+
+  Point toMapboxPoint() => Point(coordinates: toMapboxPosition());
 }
 
-extension MapboxPointX on mb.Point {
-  LatLng toLatLng() =>
-      LatLng(coordinates.lat.toDouble(), coordinates.lng.toDouble());
+extension LatLngListMapboxX on List<LatLng> {
+  LineString toMapboxLineString() =>
+      LineString(coordinates: map((point) => point.toMapboxPosition()).toList());
+}
+
+extension MapboxPositionX on Position {
+  LatLng toLatLng() => LatLng(lat.toDouble(), lng.toDouble());
+}
+
+extension MapboxPointX on Point {
+  LatLng toLatLng() => coordinates.toLatLng();
 }

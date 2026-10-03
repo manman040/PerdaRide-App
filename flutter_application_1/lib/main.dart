@@ -10,7 +10,9 @@ import 'core/firebase/firebase_push_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  MapboxOptions.setAccessToken(MapboxConfig.accessToken);
+  if (MapboxConfig.hasAccessToken) {
+    MapboxOptions.setAccessToken(MapboxConfig.accessToken);
+  }
   await Firebase.initializeApp();
   unawaited(PerdaRideApp.loadSettings());
   runApp(const PerdaRideApp());

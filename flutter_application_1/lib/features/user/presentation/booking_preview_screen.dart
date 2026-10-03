@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../app/app_router.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/perda_map_view.dart';
 import '../../booking/data/booking_repository.dart';
 import '../data/osrm_routing_service.dart';
@@ -45,12 +46,31 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
   List<LatLng> _routePoints = [];
   OsrmRouteResult? _routeResult;
 
+  // Local placeholders only, used until _loadFareSettings() returns -- the
+  // admin dashboard's Fare Settings page is the actual source of truth
+  // (fareSettings/categoryA and /categoryB in Firebase), not these.
+  FareSettings _categoryASettings =
+      const FareSettings(baseFare: 2.0, perKm: 1.2, bookingFee: 1.0);
+  FareSettings _categoryBSettings =
+      const FareSettings(baseFare: 3.0, perKm: 1.5, bookingFee: 1.0);
+
   bool get _isEditing => widget.existingBookingId != null;
 
   @override
   void initState() {
     super.initState();
     _loadRoute();
+    _loadFareSettings();
+  }
+
+  Future<void> _loadFareSettings() async {
+    final categoryA = await _bookingRepository.getFareSettings('categoryA');
+    final categoryB = await _bookingRepository.getFareSettings('categoryB');
+    if (!mounted) return;
+    setState(() {
+      _categoryASettings = categoryA;
+      _categoryBSettings = categoryB;
+    });
   }
 
   double get _distanceKm {
@@ -67,23 +87,37 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
     return meter / 1000;
   }
 
+  /// Package selection ("Package A (1-4 passengers)" / "Package B (5-8
+  /// passengers)") doubles as the ride category -- same split the driver
+  /// side already uses to filter available jobs by vehicle size, so it maps
+  /// directly onto the admin dashboard's Category A / Category B rates
+  /// instead of introducing a separate category concept.
+  FareSettings get _activeFareSettings {
+    final package = _selectedPackage ?? _packageOptions.first;
+    return package.startsWith('Package B')
+        ? _categoryBSettings
+        : _categoryASettings;
+  }
+
   double get _estimatedFare {
-    const baseFare = 5.0;
-    const perKm = 2.2;
-    final subtotal = baseFare + (_distanceKm * perKm);
-    return double.parse(subtotal.toStringAsFixed(2));
+    final subtotal = _activeFareSettings.totalFor(_distanceKm);
+    // Round to the nearest 10 sen -- easier to pay/give change for in cash
+    // than an odd amount like RM12.24 (becomes RM12.20).
+    final roundedToDime = (subtotal * 10).round() / 10;
+    return double.parse(roundedToDime.toStringAsFixed(2));
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F2EE),
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1F1F1F),
+        backgroundColor: theme.colorScheme.surface,
+        foregroundColor: theme.colorScheme.onSurface,
         elevation: 0,
         title: Text(
-          _isEditing ? 'Edit Booking' : 'Booking Preview',
+          _isEditing ? copy.editBookingTitle : copy.bookingPreviewTitle,
           style: const TextStyle(fontWeight: FontWeight.w800),
         ),
       ),
@@ -97,19 +131,21 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
               children: [
-                _routeCard(),
+                _routeCard(context),
                 const SizedBox(height: 14),
-                _fareCard(),
+                _fareCard(context),
                 const SizedBox(height: 14),
                 _selectorCard(
-                  label: 'Payment Method',
-                  value: _selectedPayment ?? 'Choose payment method',
+                  context: context,
+                  label: copy.paymentMethodLabel,
+                  value: _selectedPayment ?? copy.choosePaymentMethodPlaceholder,
                   onTap: _choosePaymentMethod,
                 ),
                 const SizedBox(height: 12),
                 _selectorCard(
-                  label: 'Package',
-                  value: _selectedPackage ?? 'Select package',
+                  context: context,
+                  label: copy.packageTypeLabel,
+                  value: _selectedPackage ?? copy.selectPackagePlaceholder,
                   onTap: _choosePackage,
                 ),
                 const SizedBox(height: 18),
@@ -121,10 +157,10 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
                       : null,
                   child: Text(
                     _isSubmitting
-                        ? 'Submitting...'
+                        ? copy.bookingSubmittingCta
                         : _isEditing
-                        ? 'Save Changes'
-                        : 'Confirm Booking',
+                        ? copy.saveChangesCta
+                        : copy.confirmBookingCta,
                   ),
                 ),
               ],
@@ -181,6 +217,7 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
   }
 
   Future<void> _confirmBooking() async {
+    final copy = AppCopy.of(context);
     final payment = _selectedPayment;
     final package = _selectedPackage;
     if (payment == null || package == null) return;
@@ -245,8 +282,8 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
         SnackBar(
           content: Text(
             _isEditing
-                ? 'Failed to save changes: $e'
-                : 'Failed to create booking: $e',
+                ? '${copy.failedToSaveChangesError} $e'
+                : '${copy.failedToCreateBookingError} $e',
           ),
         ),
       );
@@ -259,11 +296,13 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
     }
   }
 
-  Widget _routeCard() {
+  Widget _routeCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(18),
         boxShadow: const [
           BoxShadow(
@@ -276,21 +315,23 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
       child: Column(
         children: [
           _routeRow(
+            context: context,
             icon: Icons.trip_origin_rounded,
-            iconBg: const Color(0xFFE3F6E8),
+            iconBg: const Color(0xFF2E7D32).withValues(alpha: 0.14),
             iconColor: const Color(0xFF2E7D32),
-            title: 'Pickup',
+            title: copy.pickupHistoryLabel,
             value: widget.pickupLabel,
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10),
-            child: Divider(height: 18, color: Color(0xFFEAE4DC)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Divider(height: 18, color: theme.dividerColor),
           ),
           _routeRow(
+            context: context,
             icon: Icons.place_rounded,
-            iconBg: const Color(0xFFFFE8E1),
+            iconBg: const Color(0xFFD84315).withValues(alpha: 0.14),
             iconColor: const Color(0xFFD84315),
-            title: 'Drop Off',
+            title: copy.dropoffTitleLabel,
             value: widget.dropoffLabel,
           ),
         ],
@@ -299,12 +340,14 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
   }
 
   Widget _routeRow({
+    required BuildContext context,
     required IconData icon,
     required Color iconBg,
     required Color iconColor,
     required String title,
     required String value,
   }) {
+    final theme = Theme.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -324,16 +367,16 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
             children: [
               Text(
                 title,
-                style: const TextStyle(
-                  color: Color(0xFF4A4A4A),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
                 value,
-                style: const TextStyle(
-                  color: Color(0xFF646464),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
                   height: 1.35,
                 ),
               ),
@@ -344,13 +387,17 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
     );
   }
 
-  Widget _fareCard() {
+  Widget _fareCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF8F0),
+        color: theme.colorScheme.primary.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFFFDDB5)),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.4),
+        ),
       ),
       child: Row(
         children: [
@@ -361,9 +408,9 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Estimated fare (${_routeResult?.distanceLabel ?? '${_distanceKm.toStringAsFixed(1)} km'})',
-                  style: const TextStyle(
-                    color: Color(0xFF7A6146),
+                  '${copy.estimatedFareLabel} (${_routeResult?.distanceLabel ?? '${_distanceKm.toStringAsFixed(1)} km'})',
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -379,9 +426,9 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
                 if (_routeResult != null) ...[
                   const SizedBox(height: 2),
                   Text(
-                    'ETA ${_routeResult!.etaLabel}',
-                    style: const TextStyle(
-                      color: Color(0xFF7A6146),
+                    '${copy.etaLabel} ${_routeResult!.etaLabel}',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -395,10 +442,12 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
   }
 
   Widget _selectorCard({
+    required BuildContext context,
     required String label,
     required String value,
     required VoidCallback onTap,
   }) {
+    final theme = Theme.of(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -407,9 +456,9 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
         child: Ink(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFE5DED5)),
+            border: Border.all(color: theme.dividerColor),
           ),
           child: Row(
             children: [
@@ -419,16 +468,16 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
                   children: [
                     Text(
                       label,
-                      style: const TextStyle(
-                        color: Color(0xFF565656),
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       value,
-                      style: const TextStyle(
-                        color: Color(0xFF2E2E2E),
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface,
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
                       ),
@@ -436,9 +485,9 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
                   ],
                 ),
               ),
-              const Icon(
+              Icon(
                 Icons.keyboard_arrow_down_rounded,
-                color: Color(0xFF6C6C6C),
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ],
           ),
@@ -448,9 +497,10 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
   }
 
   Future<void> _choosePaymentMethod() async {
+    final copy = AppCopy.of(context);
     final selected = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
@@ -462,9 +512,9 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Choose Payment Method',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                Text(
+                  copy.choosePaymentMethodTitle,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 12),
                 ..._paymentOptions.map(
@@ -484,9 +534,10 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
   }
 
   Future<void> _choosePackage() async {
+    final copy = AppCopy.of(context);
     final selected = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
       ),
@@ -498,9 +549,9 @@ class _BookingPreviewScreenState extends State<BookingPreviewScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'Select Package',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                Text(
+                  copy.selectPackageTitle,
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 12),
                 ..._packageOptions.map(

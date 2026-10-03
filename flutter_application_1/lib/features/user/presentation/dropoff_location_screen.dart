@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../../../app/app_router.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/perda_map_view.dart';
 import '../data/nominatim_geocoding_service.dart';
 
@@ -46,15 +47,16 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F2EE),
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF202020),
+        backgroundColor: theme.colorScheme.surface,
+        foregroundColor: theme.colorScheme.onSurface,
         elevation: 0,
-        title: const Text(
-          'Drop Off Location',
-          style: TextStyle(
+        title: Text(
+          copy.dropoffLocationTitle,
+          style: const TextStyle(
             fontWeight: FontWeight.w800,
           ),
         ),
@@ -62,12 +64,13 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
       body: Column(
         children: [
           Container(
-            color: Colors.white,
+            color: theme.colorScheme.surface,
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
             child: Column(
               children: [
                 _infoBox(
-                  title: 'Pickup',
+                  context: context,
+                  title: copy.pickupHistoryLabel,
                   value: widget.pickupLabel,
                   icon: Icons.trip_origin_rounded,
                 ),
@@ -76,7 +79,7 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
                   controller: _searchController,
                   textInputAction: TextInputAction.search,
                   decoration: InputDecoration(
-                    hintText: 'Search drop-off location',
+                    hintText: copy.searchDropoffHint,
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _isResolvingDropoff
                         ? const Padding(
@@ -107,9 +110,10 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
                     left: 12,
                     right: 12,
                     child: _infoBox(
-                      title: 'Drop Off',
+                      context: context,
+                      title: copy.dropoffTitleLabel,
                       value: _dropoffLabel.isEmpty
-                          ? 'Resolving location name...'
+                          ? copy.resolvingLocationName
                           : _dropoffLabel,
                       icon: Icons.place_outlined,
                     ),
@@ -118,7 +122,7 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
             ),
           ),
           Container(
-            color: Colors.white,
+            color: theme.colorScheme.surface,
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
             child: SizedBox(
               width: double.infinity,
@@ -136,7 +140,7 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
                         );
                       }
                     : null,
-                child: const Text('Confirm Drop Off'),
+                child: Text(copy.confirmDropoffCta),
               ),
             ),
           ),
@@ -146,16 +150,18 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
   }
 
   Widget _infoBox({
+    required BuildContext context,
     required String title,
     required String value,
     required IconData icon,
   }) {
+    final theme = Theme.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFFFF),
-        border: Border.all(color: const Color(0xFFE5E0DA)),
+        color: theme.colorScheme.surface,
+        border: Border.all(color: theme.dividerColor),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -169,16 +175,16 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF3B3B3B),
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  style: const TextStyle(
-                    color: Color(0xFF616161),
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
                     height: 1.35,
                   ),
                 ),
@@ -214,6 +220,7 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
   }
 
   Future<void> _onMapTap(LatLng point) async {
+    final copy = AppCopy.of(context);
     setState(() {
       _dropoffSelected = true;
       _dropoffPoint = point;
@@ -223,7 +230,7 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
     final label = await _geocoding.reverse(point);
     if (!mounted) return;
     setState(() {
-      _dropoffLabel = label ?? _toLabel(point, 'Drop-off');
+      _dropoffLabel = label ?? _toLabel(point, copy.dropoffHistoryLabel);
       _isResolvingDropoff = false;
     });
   }
@@ -234,6 +241,7 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
   }
 
   Future<void> _applyDropoffSearch() async {
+    final copy = AppCopy.of(context);
     final query = _searchController.text.trim();
     if (query.isEmpty) return;
     setState(() {
@@ -246,7 +254,7 @@ class _DropoffLocationScreenState extends State<DropoffLocationScreen> {
         _isResolvingDropoff = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Drop-off location not found.')),
+        SnackBar(content: Text(copy.dropoffNotFoundError)),
       );
       return;
     }
