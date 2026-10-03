@@ -2,14 +2,24 @@ import 'dart:async';
 
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
+import '../../../app/app_router.dart';
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
 import '../../../core/settings/app_copy.dart';
 
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key});
+  const NotificationsScreen({super.key, required this.isDriver});
+
+  /// Which notification feed to show -- decided by which dashboard the user
+  /// navigated from, not guessed from Firebase data. A single account can
+  /// have both a `users/{uid}` and a `drivers/{uid}` record (e.g. a
+  /// passenger who also drives), so inferring the role from which of those
+  /// records exists mixed up driver- and passenger-targeted notifications
+  /// on the same screen.
+  final bool isDriver;
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -19,53 +29,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   final _firebase = PerdaRideFirebase.instance;
   late final _authRepository = FirebaseAuthRepository(_firebase);
   late final _databaseRepository = FirebaseDatabaseRepository(_firebase);
-  String _notificationPath = '';
-  bool _pathReady = false;
+  late final String _notificationPath = _resolveNotificationPath();
 
-  @override
-  void initState() {
-    super.initState();
-    _resolveNotificationPath();
-  }
-
-  Future<void> _resolveNotificationPath() async {
-    final user = _authRepository.currentUser;
-    if (user == null) {
-      if (!mounted) return;
-      setState(() {
-        _pathReady = true;
-      });
-      return;
-    }
-    try {
-      final userProfile = await _databaseRepository.getData('users/${user.uid}');
-      String path = 'user_notifications/${user.uid}';
-      if (userProfile.value is Map) {
-        final userType =
-            (userProfile.value as Map)['userType']?.toString().toLowerCase();
-        if (userType == 'driver') {
-          path = 'driver_notifications/${user.uid}';
-        }
-      } else {
-        final driverProfile = await _databaseRepository.getData(
-          'drivers/${user.uid}',
-        );
-        if (driverProfile.value is Map) {
-          path = 'driver_notifications/${user.uid}';
-        }
-      }
-      if (!mounted) return;
-      setState(() {
-        _notificationPath = path;
-        _pathReady = true;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _notificationPath = 'user_notifications/${user.uid}';
-        _pathReady = true;
-      });
-    }
+  String _resolveNotificationPath() {
+    final uid = _authRepository.currentUser?.uid;
+    if (uid == null) return '';
+    return widget.isDriver ? 'driver_notifications/$uid' : 'user_notifications/$uid';
   }
 
   Future<void> _markRead(String id) async {
@@ -83,6 +52,99 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }
   }
 
+  /// Tapping a notification used to only mark it read -- it stores a
+  /// bookingId but nothing ever used it, so "Driver has arrived" or "New
+  /// message from driver" led nowhere. This looks the booking up and, if
+  /// it's still live, opens the same tracking screen the dashboard would
+  /// resume into. Finished/cancelled rides (or a booking that's gone) have
+  /// no tracking screen to show, so those just mark read like before.
+  Future<void> _openNotification(_NotificationItem item) async {
+    if (!item.read) {
+      unawaited(_markRead(item.id));
+    }
+    final bookingId = item.bookingId;
+    if (bookingId == null || bookingId.isEmpty) return;
+
+    try {
+      final snapshot = await _databaseRepository.getData(
+        'bookings/$bookingId',
+      );
+      final value = snapshot.value;
+      if (value is! Map || !mounted) return;
+
+      final pickupLat = _toDouble(value['pickupLat']);
+      final pickupLng = _toDouble(value['pickupLng']);
+      final dropoffLat = _toDouble(value['dropoffLat']);
+      final dropoffLng = _toDouble(value['dropoffLng']);
+      if (pickupLat == null ||
+          pickupLng == null ||
+          dropoffLat == null ||
+          dropoffLng == null) {
+        return;
+      }
+
+      final status = (value['status'] ?? '').toString();
+      final pickupPoint = LatLng(pickupLat, pickupLng);
+      final dropoffPoint = LatLng(dropoffLat, dropoffLng);
+      final pickupLabel =
+          (value['pickupAddress'] ?? value['pickupLocation'] ?? '')
+              .toString();
+      final dropoffLabel =
+          (value['dropoffAddress'] ?? value['dropoffLocation'] ?? '')
+              .toString();
+      final paymentMethod = (value['paymentMethod'] ?? '').toString();
+      final packageLabel = (value['packageLabel'] ?? '').toString();
+      final fareLabel = (value['fareLabel'] ?? '').toString();
+      final distanceLabel = (value['distanceLabel'] ?? '').toString();
+
+      if (widget.isDriver) {
+        const liveStatuses = {'accepted', 'arrived_pickup', 'in_progress'};
+        if (!liveStatuses.contains(status)) return;
+        Navigator.of(context).pushNamed(
+          AppRouter.driverActiveRide,
+          arguments: <String, dynamic>{
+            'bookingId': bookingId,
+            'pickupPoint': pickupPoint,
+            'pickupLabel': pickupLabel,
+            'dropoffPoint': dropoffPoint,
+            'dropoffLabel': dropoffLabel,
+            'paymentMethod': paymentMethod,
+            'packageLabel': packageLabel,
+            'priceLabel': fareLabel,
+            'distanceKm': distanceLabel,
+          },
+        );
+      } else {
+        const liveStatuses = {
+          'pending',
+          'accepted',
+          'arrived_pickup',
+          'in_progress',
+        };
+        if (!liveStatuses.contains(status)) return;
+        Navigator.of(context).pushNamed(
+          AppRouter.userBookingStatus,
+          arguments: <String, dynamic>{
+            'bookingId': bookingId,
+            'pickupPoint': pickupPoint,
+            'pickupLabel': pickupLabel,
+            'dropoffPoint': dropoffPoint,
+            'dropoffLabel': dropoffLabel,
+            'paymentMethod': paymentMethod,
+            'packageLabel': packageLabel,
+            'fareLabel': fareLabel,
+          },
+        );
+      }
+    } catch (_) {}
+  }
+
+  double? _toDouble(Object? value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value);
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final copy = AppCopy.of(context);
@@ -90,10 +152,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     final colorScheme = theme.colorScheme;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F6F6),
-      body: !_pathReady
-          ? const Center(child: CircularProgressIndicator())
-          : StreamBuilder<DatabaseEvent>(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: StreamBuilder<DatabaseEvent>(
               stream: _notificationPath.isEmpty
                   ? null
                   : _databaseRepository.watchPath(_notificationPath),
@@ -112,9 +172,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         if (unreadCount > 0)
                           TextButton(
                             onPressed: () => _markAllRead(items),
-                            child: const Text(
-                              'Mark all read',
-                              style: TextStyle(
+                            child: Text(
+                              copy.markAllRead,
+                              style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -136,7 +196,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 final item = items[index];
                                 return _NotificationTile(
                                   item: item,
-                                  onTap: () => _markRead(item.id),
+                                  onTap: () => _openNotification(item),
                                 );
                               },
                             ),
@@ -195,6 +255,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       final body = (value['body'] ?? value['message'] ?? '').toString().trim();
       final timestamp = _parseTimestamp(value['createdAt'] ?? value['timestamp']);
       if (title.isEmpty && body.isEmpty) return;
+      final bookingId = value['bookingId']?.toString();
       items.add(
         _NotificationItem(
           id: key.toString(),
@@ -202,6 +263,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           body: body,
           createdAt: timestamp ?? DateTime.now(),
           read: value['read'] == true,
+          bookingId: (bookingId == null || bookingId.isEmpty)
+              ? null
+              : bookingId,
         ),
       );
     });
@@ -273,10 +337,13 @@ class _NotificationTile extends StatelessWidget {
         '${item.createdAt.day.toString().padLeft(2, '0')}/${item.createdAt.month.toString().padLeft(2, '0')} ${item.createdAt.hour.toString().padLeft(2, '0')}:${item.createdAt.minute.toString().padLeft(2, '0')}';
 
     return Material(
-      color: Colors.white,
+      color: theme.colorScheme.surface,
       borderRadius: BorderRadius.circular(18),
       child: InkWell(
-        onTap: item.read ? null : onTap,
+        // Previously disabled once read, back when tapping only marked it
+        // read (nothing left to do at that point). Now it also opens the
+        // linked ride, so it needs to stay tappable either way.
+        onTap: onTap,
         borderRadius: BorderRadius.circular(18),
         child: Container(
           padding: const EdgeInsets.all(14),
@@ -284,15 +351,17 @@ class _NotificationTile extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: item.read
-                  ? const Color(0xFFEDEDED)
+                  ? theme.dividerColor
                   : visual.color.withValues(alpha: 0.35),
               width: item.read ? 1 : 1.4,
             ),
-            boxShadow: const [
+            boxShadow: [
               BoxShadow(
-                color: Color(0x0C000000),
+                color: theme.brightness == Brightness.dark
+                    ? Colors.black.withValues(alpha: 0.3)
+                    : const Color(0x0C000000),
                 blurRadius: 10,
-                offset: Offset(0, 4),
+                offset: const Offset(0, 4),
               ),
             ],
           ),
@@ -339,13 +408,21 @@ class _NotificationTile extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         item.body,
-                        style: const TextStyle(color: Color(0xFF5F5F5F), height: 1.35),
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.35,
+                        ),
                       ),
                     ],
                     const SizedBox(height: 6),
                     Text(
                       timeLabel,
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF9A9A9A)),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -365,6 +442,7 @@ class _NotificationItem {
     required this.body,
     required this.createdAt,
     required this.read,
+    required this.bookingId,
   });
 
   final String id;
@@ -372,4 +450,5 @@ class _NotificationItem {
   final String body;
   final DateTime createdAt;
   final bool read;
+  final String? bookingId;
 }

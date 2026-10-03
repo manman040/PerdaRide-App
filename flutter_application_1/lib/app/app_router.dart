@@ -11,6 +11,7 @@ import '../features/auth/presentation/driver_vehicle_details_screen.dart';
 import '../features/auth/presentation/user_registration_screen.dart';
 import '../features/driver/presentation/driver_active_ride_screen.dart';
 import '../features/driver/presentation/driver_dashboard_screen.dart';
+import '../features/driver/presentation/driver_document_resubmit_screen.dart';
 import '../features/driver/presentation/driver_history_screen.dart';
 import '../features/driver/presentation/driver_pending_approval_screen.dart';
 import '../features/driver/presentation/driver_profile_screen.dart';
@@ -46,6 +47,7 @@ class AppRouter {
   static const driverDashboard = '/driver-dashboard';
   static const driverActiveRide = '/driver-active-ride';
   static const driverPendingApproval = '/driver-pending-approval';
+  static const driverDocumentResubmit = '/driver-document-resubmit';
   static const driverProfile = '/driver-profile';
   static const driverHistory = '/driver-history';
   static const driverTotalEarning = '/driver-total-earning';
@@ -58,7 +60,11 @@ class AppRouter {
       case welcome:
         return _buildRoute(const WelcomeScreen(), routeSettings);
       case login:
-        return _buildRoute(const LoginScreen(), routeSettings);
+        final loginArgs = routeSettings.arguments as Map<String, dynamic>?;
+        return _buildRoute(
+          LoginScreen(notice: loginArgs?['notice'] as String?),
+          routeSettings,
+        );
       case forgotPassword:
         return _buildRoute(const ForgotPasswordScreen(), routeSettings);
       case changePassword:
@@ -81,7 +87,11 @@ class AppRouter {
       case myProfile:
         return _buildRoute(const MyProfileScreen(), routeSettings);
       case notifications:
-        return _buildRoute(const NotificationsScreen(), routeSettings);
+        final args = routeSettings.arguments as Map<String, dynamic>?;
+        return _buildRoute(
+          NotificationsScreen(isDriver: args?['isDriver'] == true),
+          routeSettings,
+        );
       case settings:
         return _buildRoute(const SettingsScreen(), routeSettings);
       case dropoffLocation:
@@ -152,6 +162,19 @@ class AppRouter {
       case driverPendingApproval:
         return _buildRoute(
           const DriverPendingApprovalScreen(),
+          routeSettings,
+        );
+      case driverDocumentResubmit:
+        final args = routeSettings.arguments as Map<String, dynamic>?;
+        final rejectedDocuments =
+            (args?['rejectedDocuments'] as List?)?.cast<String>() ??
+            const <String>[];
+        return _buildRoute(
+          DriverDocumentResubmitScreen(
+            rejectedDocuments: rejectedDocuments,
+            rejectionReason: args?['rejectionReason'] as String?,
+            rejectionMessage: args?['rejectionMessage'] as String?,
+          ),
           routeSettings,
         );
       case driverProfile:

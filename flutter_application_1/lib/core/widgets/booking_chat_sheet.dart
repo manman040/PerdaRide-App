@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/material.dart';
 
@@ -7,6 +8,7 @@ import '../../features/booking/data/booking_repository.dart';
 import '../firebase/firebase_database_repository.dart';
 import '../firebase/perdaride_firebase.dart';
 import '../notifications/ride_notification_service.dart';
+import '../settings/app_copy.dart';
 
 Future<void> showBookingChatSheet(
   BuildContext context, {
@@ -17,7 +19,7 @@ Future<void> showBookingChatSheet(
   return showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.white,
+    backgroundColor: Theme.of(context).colorScheme.surface,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
     ),
@@ -120,6 +122,7 @@ class _BookingChatSheetState extends State<_BookingChatSheet> {
   }
 
   Future<void> _send() async {
+    final copy = AppCopy.of(context);
     final message = _inputController.text.trim();
     if (message.isEmpty || _isSending) return;
     setState(() {
@@ -132,12 +135,20 @@ class _BookingChatSheetState extends State<_BookingChatSheet> {
         message: message,
       );
       _inputController.clear();
-      unawaited(_notifyOtherParty(message));
+      unawaited(_notifyOtherParty(copy, message));
+    } on FirebaseException catch (e) {
+      if (!mounted) return;
+      final reason = e.code == 'permission-denied'
+          ? 'permission denied — check the booking_chats database rule'
+          : e.message ?? e.code;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${copy.sendMessageFailedGeneric} ($reason)')),
+      );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Failed to send message.')));
+      ).showSnackBar(SnackBar(content: Text(copy.sendMessageFailedGeneric)));
     } finally {
       if (mounted) {
         setState(() {
@@ -147,7 +158,7 @@ class _BookingChatSheetState extends State<_BookingChatSheet> {
     }
   }
 
-  Future<void> _notifyOtherParty(String message) async {
+  Future<void> _notifyOtherParty(AppCopy copy, String message) async {
     try {
       final snapshot = await _databaseRepository.getData(
         'bookings/${widget.bookingId}',
@@ -166,20 +177,24 @@ class _BookingChatSheetState extends State<_BookingChatSheet> {
       await RideNotificationService.instance.notify(
         uid: recipientId,
         isDriver: !isDriverSender,
-        title: isDriverSender ? 'New message from driver' : 'New message from passenger',
+        title: isDriverSender
+            ? copy.newMessageFromDriverTitle
+            : copy.newMessageFromPassengerTitle,
         body: message,
         bookingId: widget.bookingId,
       );
     } catch (_) {}
   }
 
-  String _labelFor(String senderRole) {
-    if (senderRole == widget.currentUserRole) return 'You';
-    return senderRole == 'driver' ? 'Driver' : 'Passenger';
+  String _labelFor(AppCopy copy, String senderRole) {
+    if (senderRole == widget.currentUserRole) return copy.youLabel;
+    return senderRole == 'driver' ? copy.driverRole : copy.passengerRole;
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return Padding(
       padding: EdgeInsets.only(
         left: 16,
@@ -194,17 +209,17 @@ class _BookingChatSheetState extends State<_BookingChatSheet> {
           children: [
             Text(
               widget.currentUserRole == 'driver'
-                  ? 'Chat with Passenger'
-                  : 'Chat with Driver',
+                  ? copy.chatWithPassengerTitle
+                  : copy.chatWithDriverTitle,
               style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 10),
             Expanded(
               child: _messages.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
-                        'No messages yet. Say hello!',
-                        style: TextStyle(color: Color(0xFF8A786A)),
+                        copy.noMessagesYet,
+                        style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                       ),
                     )
                   : ListView.builder(
@@ -230,7 +245,7 @@ class _BookingChatSheetState extends State<_BookingChatSheet> {
                             decoration: BoxDecoration(
                               color: isMine
                                   ? const Color(0xFFF68B1F)
-                                  : const Color(0xFFF3F1ED),
+                                  : theme.colorScheme.surfaceContainerHighest,
                               borderRadius: BorderRadius.circular(16),
                             ),
                             child: Column(
@@ -238,13 +253,13 @@ class _BookingChatSheetState extends State<_BookingChatSheet> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  _labelFor(message.senderRole),
+                                  _labelFor(copy, message.senderRole),
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
                                     color: isMine
                                         ? Colors.white70
-                                        : const Color(0xFF8A786A),
+                                        : theme.colorScheme.onSurfaceVariant,
                                   ),
                                 ),
                                 const SizedBox(height: 2),
@@ -253,7 +268,7 @@ class _BookingChatSheetState extends State<_BookingChatSheet> {
                                   style: TextStyle(
                                     color: isMine
                                         ? Colors.white
-                                        : const Color(0xFF1D1B1A),
+                                        : theme.colorScheme.onSurface,
                                   ),
                                 ),
                               ],
@@ -269,8 +284,8 @@ class _BookingChatSheetState extends State<_BookingChatSheet> {
                 Expanded(
                   child: TextField(
                     controller: _inputController,
-                    decoration: const InputDecoration(
-                      hintText: 'Type your message',
+                    decoration: InputDecoration(
+                      hintText: copy.typeMessageHint,
                     ),
                     onSubmitted: (_) => _send(),
                   ),

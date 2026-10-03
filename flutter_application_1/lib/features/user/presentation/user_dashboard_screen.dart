@@ -8,6 +8,7 @@ import '../../../app/app_router.dart';
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
+import '../../../core/firebase/account_status.dart';
 import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/perda_map_view.dart';
 import '../data/nominatim_geocoding_service.dart';
@@ -30,7 +31,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
       FirebaseDatabaseRepository(_firebase);
   final _geocoding = NominatimGeocodingService();
   bool _isMenuOpen = false;
-  String _menuName = 'PerdaRide User';
+  String _menuName = 'Urban Drive User';
   String _menuEmail = 'user@perdaride.app';
   bool _isProfileLoading = true;
   bool _isResolvingPickup = false;
@@ -72,6 +73,12 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
       final snapshot = await _databaseRepository.getData('users/${user.uid}');
       final value = snapshot.value;
 
+      if (!mounted) return;
+      if (AccountStatus.isDisabled(value)) {
+        await _forceSignOut();
+        return;
+      }
+
       String name = _menuName;
       String email = user.email ?? _menuEmail;
 
@@ -105,13 +112,12 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
   Widget build(BuildContext context) {
     final copy = AppCopy.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFF2ECE7),
       body: Stack(
         children: [
-          _pickupPoint == null ? _locationLoadingView() : _pickupMap(),
+          _pickupPoint == null ? _locationLoadingView(context) : _pickupMap(),
           _buildTopBar(context),
-          _buildLocationPill(copy),
-          if (_pickupPoint != null) _buildPickupCard(copy),
+          _buildLocationPill(context, copy),
+          if (_pickupPoint != null) _buildPickupCard(context, copy),
           _buildBookingFab(context),
           _buildSideMenu(context, copy),
         ],
@@ -119,23 +125,25 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     );
   }
 
-  Widget _locationLoadingView() {
+  Widget _locationLoadingView(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return Container(
-      color: const Color(0xFFF2ECE7),
+      color: theme.scaffoldBackgroundColor,
       alignment: Alignment.center,
-      child: const Column(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
+          const SizedBox(
             width: 34,
             height: 34,
             child: CircularProgressIndicator(strokeWidth: 3),
           ),
-          SizedBox(height: 14),
+          const SizedBox(height: 14),
           Text(
-            'Detecting current location...',
+            copy.detectingLocationLabel,
             style: TextStyle(
-              color: Color(0xFF454545),
+              color: theme.colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
             ),
           ),
@@ -170,6 +178,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
 
   Widget _buildTopBar(BuildContext context) {
     final copy = AppCopy.of(context);
+    final theme = Theme.of(context);
     final topInset = MediaQuery.of(context).padding.top;
     return Container(
       height: topInset + 74,
@@ -177,9 +186,9 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
       child: Container(
         height: 74,
         padding: const EdgeInsets.symmetric(horizontal: 14),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFDFCFB),
-          boxShadow: [
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          boxShadow: const [
             BoxShadow(
               color: Color(0x16000000),
               blurRadius: 8,
@@ -209,7 +218,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
               child: Container(
                 height: 46,
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: theme.colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(26),
                   boxShadow: const [
                     BoxShadow(
@@ -224,8 +233,8 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                   textInputAction: TextInputAction.search,
                   decoration: InputDecoration(
                     hintText: copy.searchHint,
-                    hintStyle: const TextStyle(
-                      color: Color(0xFF9A9A9A),
+                    hintStyle: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
                       fontWeight: FontWeight.w600,
                     ),
                     prefixIcon: const Icon(
@@ -257,7 +266,8 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     );
   }
 
-  Widget _buildLocationPill(AppCopy copy) {
+  Widget _buildLocationPill(BuildContext context, AppCopy copy) {
+    final theme = Theme.of(context);
     return Positioned(
       top: 122,
       right: 18,
@@ -269,7 +279,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: theme.colorScheme.surface,
               borderRadius: BorderRadius.circular(22),
               boxShadow: const [
                 BoxShadow(
@@ -295,10 +305,12 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                       ),
                 const SizedBox(width: 8),
                 Text(
-                  _isDetectingLocation ? 'Detecting...' : 'Detect My Location',
-                  style: const TextStyle(
+                  _isDetectingLocation
+                      ? copy.detectingShortLabel
+                      : copy.detectMyLocationCta,
+                  style: TextStyle(
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF1E1E1E),
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
               ],
@@ -334,8 +346,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
             );
           },
           child: Ink(
-            width: 64,
-            height: 64,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 colors: [Color(0xFFF15A24), Color(0xFFF68B1F)],
@@ -349,8 +360,24 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                 ),
               ],
             ),
-            child: const Center(
-              child: Icon(Icons.add, color: Colors.white, size: 34),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.add_location_alt_rounded,
+                  color: Colors.white,
+                  size: 24,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  copy.addLocationCta,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -358,7 +385,8 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     );
   }
 
-  Widget _buildPickupCard(AppCopy copy) {
+  Widget _buildPickupCard(BuildContext context, AppCopy copy) {
+    final theme = Theme.of(context);
     return Positioned(
       top: 172,
       left: 16,
@@ -366,9 +394,9 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE6E0D8)),
+          border: Border.all(color: theme.dividerColor),
           boxShadow: const [
             BoxShadow(
               color: Color(0x18000000),
@@ -384,7 +412,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
               width: 24,
               height: 24,
               decoration: BoxDecoration(
-                color: const Color(0xFFFFE7CB),
+                color: theme.colorScheme.primary.withValues(alpha: 0.16),
                 borderRadius: BorderRadius.circular(99),
               ),
               child: const Icon(
@@ -400,16 +428,16 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                 children: [
                   Text(
                     copy.pickupLocation,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF353535),
+                      color: theme.colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     _pickupLabel.isEmpty ? copy.loadingPlace : _pickupLabel,
-                    style: const TextStyle(
-                      color: Color(0xFF666666),
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant,
                       height: 1.35,
                     ),
                   ),
@@ -423,6 +451,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
   }
 
   Widget _buildSideMenu(BuildContext context, AppCopy copy) {
+    final theme = Theme.of(context);
     return IgnorePointer(
       ignoring: !_isMenuOpen,
       child: AnimatedOpacity(
@@ -448,7 +477,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                   margin: const EdgeInsets.only(top: 8, bottom: 8, left: 8),
                   padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFFFFF),
+                    color: theme.colorScheme.surface,
                     borderRadius: BorderRadius.circular(22),
                     boxShadow: const [
                       BoxShadow(
@@ -483,9 +512,10 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                               icon: Icons.notifications_none_rounded,
                               label: copy.notificationsMenu,
                               onTap: () {
-                                Navigator.of(
-                                  context,
-                                ).pushNamed(AppRouter.notifications);
+                                Navigator.of(context).pushNamed(
+                                  AppRouter.notifications,
+                                  arguments: {'isDriver': false},
+                                );
                               },
                             ),
                             _menuItem(
@@ -499,7 +529,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                               },
                             ),
                             const Spacer(),
-                            const Divider(color: Color(0x14000000)),
+                            Divider(color: theme.dividerColor),
                             _menuItem(
                               context: context,
                               icon: Icons.logout_rounded,
@@ -528,6 +558,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     required VoidCallback onTap,
     bool danger = false,
   }) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
@@ -557,7 +588,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
                   style: TextStyle(
                     color: danger
                         ? const Color(0xFFD94A35)
-                        : const Color(0xFF212121),
+                        : theme.colorScheme.onSurface,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.3,
                   ),
@@ -571,6 +602,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
   }
 
   Future<void> _onMapTap(LatLng point) async {
+    final copy = AppCopy.of(context);
     setState(() {
       _pickupPoint = point;
       _pickupLabel = '';
@@ -580,10 +612,11 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     final label = await _geocoding.reverse(point);
     if (!mounted) return;
     setState(() {
-      _pickupLabel = label ?? _toLabel(point, 'Pickup');
+      _pickupLabel = label ?? _toLabel(point, copy.pickupHistoryLabel);
       _isResolvingPickup = false;
     });
   }
+
 
   Future<void> _applyPickupSearch(String value) async {
     final query = value.trim();
@@ -615,6 +648,20 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
         '${point.longitude.toStringAsFixed(5)}';
   }
 
+  /// The admin disabled this account: sign out and explain on the login screen.
+  Future<void> _forceSignOut() async {
+    final notice = AppCopy.of(context).accountDisabledError;
+    try {
+      await _authRepository.signOut();
+    } catch (_) {}
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      AppRouter.login,
+      (route) => false,
+      arguments: <String, dynamic>{'notice': notice},
+    );
+  }
+
   Future<void> _signOut() async {
     try {
       await _authRepository.signOut();
@@ -635,6 +682,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
 
   Future<void> _detectMyLocation() async {
     if (_isDetectingLocation) return;
+    final copy = AppCopy.of(context);
 
     setState(() {
       _isDetectingLocation = true;
@@ -645,9 +693,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
       if (!serviceEnabled) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please enable location service on your phone.'),
-          ),
+          SnackBar(content: Text(copy.locationServiceDisabledError)),
         );
         return;
       }
@@ -661,7 +707,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
           permission == LocationPermission.deniedForever) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location permission is required.')),
+          SnackBar(content: Text(copy.locationPermissionRequiredError)),
         );
         return;
       }
@@ -690,7 +736,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to detect your location now.')),
+        SnackBar(content: Text(copy.locationDetectionFailedError)),
       );
     } finally {
       if (mounted) {
@@ -706,6 +752,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     required bool moveMap,
     bool showResolving = true,
   }) async {
+    final copy = AppCopy.of(context);
     final point = LatLng(position.latitude, position.longitude);
 
     if (!mounted) return;
@@ -722,7 +769,7 @@ class _UserDashboardScreenState extends State<UserDashboardScreen> {
     final label = await _geocoding.reverse(point);
     if (!mounted) return;
     setState(() {
-      _pickupLabel = label ?? _toLabel(point, 'Pickup');
+      _pickupLabel = label ?? _toLabel(point, copy.pickupHistoryLabel);
       _isResolvingPickup = false;
     });
   }
@@ -741,12 +788,14 @@ class _MenuHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return Row(
       children: [
-        const CircleAvatar(
+        CircleAvatar(
           radius: 26,
-          backgroundColor: Color(0xFFFFE7CB),
-          child: Icon(Icons.person, color: Color(0xFFF68B1F), size: 30),
+          backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.16),
+          child: const Icon(Icons.person, color: Color(0xFFF68B1F), size: 30),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -754,9 +803,9 @@ class _MenuHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isLoading ? 'Loading profile...' : name,
-                style: const TextStyle(
-                  color: Color(0xFF1F1F1F),
+                isLoading ? copy.loadingProfileLabel : name,
+                style: TextStyle(
+                  color: theme.colorScheme.onSurface,
                   fontWeight: FontWeight.w800,
                   fontSize: 17,
                 ),
@@ -764,7 +813,10 @@ class _MenuHeader extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 email,
-                style: const TextStyle(color: Color(0xFF757575), fontSize: 12),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),

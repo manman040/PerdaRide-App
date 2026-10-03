@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/app_router.dart';
+import '../../../core/settings/app_copy.dart';
 import '../data/driver_registration_draft.dart';
 import 'registration_widgets.dart';
 
@@ -37,57 +38,61 @@ class _DriverDocumentUploadScreenState
 
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     return RegistrationScaffold(
-      header: const RegistrationHeader(
-        title: 'Driver Registration',
-        subtitle: 'Step 3 of 3',
+      header: RegistrationHeader(
+        title: copy.driverRegistrationTitle,
+        subtitle: copy.driverRegistrationStep3Subtitle,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SectionTitle('Document Upload'),
+          SectionTitle(copy.documentUploadTitle),
           UploadOptionCard(
-            title: 'Gambar IC',
+            title: copy.icPhotoCardTitle,
             slots: [
               UploadDocumentSlot(
-                label: 'Front',
+                label: copy.frontLabel,
                 path: _icFrontPath,
                 onTap: () => _pickSlot('ic_front'),
               ),
               UploadDocumentSlot(
-                label: 'Back',
+                label: copy.backLabel,
                 path: _icBackPath,
                 onTap: () => _pickSlot('ic_back'),
               ),
             ],
           ),
           UploadOptionCard(
-            title: 'Gambar Geran',
+            title: copy.grantPhotoCardTitle,
             slots: [
               UploadDocumentSlot(
-                label: 'Photo',
+                label: copy.photoSlotLabel,
                 path: _grantPath,
                 onTap: () => _pickSlot('grant'),
               ),
             ],
           ),
           UploadOptionCard(
-            title: 'Gambar Lesen',
+            title: copy.licensePhotoCardTitle,
             slots: [
               UploadDocumentSlot(
-                label: 'Front',
+                label: copy.frontLabel,
                 path: _licenseFrontPath,
                 onTap: () => _pickSlot('license_front'),
               ),
               UploadDocumentSlot(
-                label: 'Back',
+                label: copy.backLabel,
                 path: _licenseBackPath,
                 onTap: () => _pickSlot('license_back'),
               ),
             ],
           ),
           const SizedBox(height: 18),
-          RegistrationActionButton(label: 'Next', onPressed: _goToReviewPage),
+          RegistrationActionButton(
+            label: copy.nextCta,
+            onPressed: _goToReviewPage,
+          ),
         ],
       ),
     );
@@ -114,6 +119,7 @@ class _DriverDocumentUploadScreenState
   }
 
   Future<String?> _pickPhotoFlow(String _) async {
+    final copy = AppCopy.of(context);
     try {
       final source = await _pickSource();
       if (source == null) return null;
@@ -125,17 +131,16 @@ class _DriverDocumentUploadScreenState
       );
       return file?.path;
     } on MissingPluginException {
-      _showMessage(
-        'Image picker not ready yet. Run flutter pub get and fully restart app.',
-      );
+      _showMessage(copy.imagePickerNotReadyError);
       return null;
     } on PlatformException catch (e) {
-      _showMessage('Unable to open picker: ${e.message ?? e.code}');
+      _showMessage('${copy.unableToOpenPickerPrefix} ${e.message ?? e.code}');
       return null;
     }
   }
 
   Future<ImageSource?> _pickSource() async {
+    final copy = AppCopy.of(context);
     return showModalBottomSheet<ImageSource>(
       context: context,
       builder: (context) {
@@ -145,12 +150,12 @@ class _DriverDocumentUploadScreenState
             children: [
               ListTile(
                 leading: const Icon(Icons.camera_alt_outlined),
-                title: const Text('Camera'),
+                title: Text(copy.cameraOption),
                 onTap: () => Navigator.of(context).pop(ImageSource.camera),
               ),
               ListTile(
                 leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Gallery'),
+                title: Text(copy.galleryOption),
                 onTap: () => Navigator.of(context).pop(ImageSource.gallery),
               ),
             ],
@@ -161,12 +166,13 @@ class _DriverDocumentUploadScreenState
   }
 
   void _goToReviewPage() {
+    final copy = AppCopy.of(context);
     if (_icFrontPath == null ||
         _icBackPath == null ||
         _licenseFrontPath == null ||
         _licenseBackPath == null ||
         _grantPath == null) {
-      _showMessage('Please complete all document photos.');
+      _showMessage(copy.completeDocumentPhotosError);
       return;
     }
 

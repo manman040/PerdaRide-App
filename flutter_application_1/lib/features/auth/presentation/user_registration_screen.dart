@@ -5,6 +5,7 @@ import '../../../app/app_router.dart';
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
+import '../../../core/settings/app_copy.dart';
 import 'registration_widgets.dart';
 
 class UserRegistrationScreen extends StatefulWidget {
@@ -44,50 +45,51 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     return RegistrationScaffold(
-      header: const RegistrationHeader(
-        title: 'User Registration',
-        subtitle: 'Create your passenger account',
+      header: RegistrationHeader(
+        title: copy.userRegistrationTitle,
+        subtitle: copy.userRegistrationSubtitle,
       ),
       child: Column(
         children: [
-          const SectionTitle('User Registration'),
-          const PicturePickerCard(
-            label: 'Profile Picture',
+          SectionTitle(copy.userRegistrationTitle),
+          PicturePickerCard(
+            label: copy.profilePictureLabel,
             icon: Icons.add_a_photo_outlined,
           ),
           const SizedBox(height: 28),
           RegistrationField(
-            hint: 'Email',
+            hint: copy.email,
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
           ),
           RegistrationField(
-            hint: 'Name',
+            hint: copy.nameFieldLabel,
             controller: _nameController,
           ),
           RegistrationField(
-            hint: 'Identification card',
+            hint: copy.idCard,
             controller: _idCardController,
           ),
           RegistrationField(
-            hint: 'No. Phone',
+            hint: copy.phoneFieldHint,
             controller: _phoneController,
             keyboardType: TextInputType.phone,
           ),
           RegistrationField(
-            hint: 'Password',
+            hint: copy.passwordLabel,
             controller: _passwordController,
             obscureText: true,
           ),
           RegistrationField(
-            hint: 'Confirm Password',
+            hint: copy.confirmPasswordHint,
             controller: _confirmPasswordController,
             obscureText: true,
           ),
           const SizedBox(height: 10),
           RegistrationActionButton(
-            label: _isSubmitting ? 'Creating Account...' : 'Submit',
+            label: _isSubmitting ? copy.creatingAccountCta : copy.submitCta,
             onPressed: _isSubmitting ? () {} : _registerUser,
           ),
         ],
@@ -96,6 +98,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   }
 
   Future<void> _registerUser() async {
+    final copy = AppCopy.of(context);
     final email = _emailController.text.trim();
     final name = _nameController.text.trim();
     final idCard = _idCardController.text.trim();
@@ -104,6 +107,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     final confirmPassword = _confirmPasswordController.text.trim();
 
     final validationError = _validateInputs(
+      copy,
       email: email,
       name: name,
       idCard: idCard,
@@ -130,7 +134,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       if (user == null) {
         throw FirebaseAuthException(
           code: 'user-null',
-          message: 'User account creation failed. Please try again.',
+          message: copy.userAccountCreationFailedError,
         );
       }
 
@@ -146,14 +150,14 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
       await _databaseRepository.setData('users/${user.uid}', userData);
 
       if (!mounted) return;
-      _showMessage('Account created successfully!');
+      _showMessage(copy.accountCreatedSuccessMessage);
       Navigator.of(context).pushReplacementNamed(AppRouter.login);
     } on FirebaseAuthException catch (e) {
       if (!mounted) return;
-      _showMessage(_friendlyAuthError(e));
+      _showMessage(_friendlyAuthError(copy, e));
     } catch (_) {
       if (!mounted) return;
-      _showMessage('Registration failed. Please try again.');
+      _showMessage(copy.registrationFailedTryAgainError);
     } finally {
       if (mounted) {
         setState(() {
@@ -163,7 +167,8 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     }
   }
 
-  String? _validateInputs({
+  String? _validateInputs(
+    AppCopy copy, {
     required String email,
     required String name,
     required String idCard,
@@ -171,30 +176,30 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     required String password,
     required String confirmPassword,
   }) {
-    if (email.isEmpty) return 'Please enter your email';
-    if (!_emailPattern.hasMatch(email)) return 'Please enter a valid email';
-    if (name.isEmpty) return 'Please enter your name';
-    if (idCard.isEmpty) return 'Please enter your identification card';
-    if (phone.isEmpty) return 'Please enter your phone number';
-    if (password.isEmpty) return 'Please enter your password';
-    if (confirmPassword.isEmpty) return 'Please confirm your password';
-    if (password != confirmPassword) return 'Passwords do not match';
-    if (password.length < 6) return 'Password must be at least 6 characters';
+    if (email.isEmpty) return copy.enterYourEmailError;
+    if (!_emailPattern.hasMatch(email)) return copy.validEmailError;
+    if (name.isEmpty) return copy.enterYourNameError;
+    if (idCard.isEmpty) return copy.enterIdCardError;
+    if (phone.isEmpty) return copy.enterPhoneNumberError;
+    if (password.isEmpty) return copy.enterYourPasswordError;
+    if (confirmPassword.isEmpty) return copy.confirmYourPasswordError;
+    if (password != confirmPassword) return copy.passwordsDoNotMatchError;
+    if (password.length < 6) return copy.passwordMinLengthError;
     return null;
   }
 
-  String _friendlyAuthError(FirebaseAuthException e) {
+  String _friendlyAuthError(AppCopy copy, FirebaseAuthException e) {
     switch (e.code) {
       case 'email-already-in-use':
-        return 'This email is already registered.';
+        return copy.emailAlreadyRegisteredError;
       case 'invalid-email':
-        return 'Invalid email address.';
+        return copy.invalidEmailError;
       case 'weak-password':
-        return 'Password is too weak.';
+        return copy.weakPasswordError;
       case 'network-request-failed':
-        return 'Network error. Check your connection and try again.';
+        return copy.networkErrorTryAgainError;
       default:
-        return e.message ?? 'Registration failed.';
+        return e.message ?? copy.registrationFailedError;
     }
   }
 

@@ -78,7 +78,6 @@ class RegistrationScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFFFF7EF),
       body: Column(
         children: [
           header,
@@ -101,16 +100,17 @@ class SectionTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 18),
       child: Center(
         child: Text(
           text,
           textAlign: TextAlign.center,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.w800,
-            color: Color(0xFF1D1B1A),
+            color: theme.colorScheme.onSurface,
           ),
         ),
       ),
@@ -134,6 +134,7 @@ class PicturePickerCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Column(
       children: [
         GestureDetector(
@@ -171,10 +172,10 @@ class PicturePickerCard extends StatelessWidget {
         const SizedBox(height: 10),
         Text(
           label,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 15,
             fontWeight: FontWeight.w600,
-            color: Color(0xFF2A2A2A),
+            color: theme.colorScheme.onSurface,
           ),
         ),
       ],
@@ -182,7 +183,7 @@ class PicturePickerCard extends StatelessWidget {
   }
 }
 
-class RegistrationField extends StatelessWidget {
+class RegistrationField extends StatefulWidget {
   const RegistrationField({
     super.key,
     required this.hint,
@@ -205,19 +206,36 @@ class RegistrationField extends StatelessWidget {
   final TextCapitalization textCapitalization;
 
   @override
+  State<RegistrationField> createState() => _RegistrationFieldState();
+}
+
+class _RegistrationFieldState extends State<RegistrationField> {
+  late bool _obscured = widget.obscureText;
+
+  @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: TextField(
-        controller: controller,
-        keyboardType: keyboardType,
-        obscureText: obscureText,
-        readOnly: readOnly,
-        onTap: onTap,
-        textCapitalization: textCapitalization,
+        controller: widget.controller,
+        keyboardType: widget.keyboardType,
+        obscureText: widget.obscureText && _obscured,
+        readOnly: widget.readOnly,
+        onTap: widget.onTap,
+        textCapitalization: widget.textCapitalization,
         decoration: InputDecoration(
-          hintText: hint,
-          suffixIcon: suffixIcon,
+          hintText: widget.hint,
+          suffixIcon: widget.obscureText
+              ? IconButton(
+                  onPressed: () => setState(() => _obscured = !_obscured),
+                  icon: Icon(
+                    _obscured
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    size: 18,
+                  ),
+                )
+              : widget.suffixIcon,
         ),
       ),
     );

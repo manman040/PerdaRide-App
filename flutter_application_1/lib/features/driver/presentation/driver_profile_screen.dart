@@ -61,6 +61,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
   }
 
   Future<void> _saveProfile() async {
+    final copy = AppCopy.of(context);
     final user = _authRepository.currentUser;
     if (user == null) return;
 
@@ -83,12 +84,12 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
         _isEditing = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated.')),
+        SnackBar(content: Text(copy.profileUpdatedMessage)),
       );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update profile: $e')),
+        SnackBar(content: Text('${copy.updateProfileFailedError}: $e')),
       );
     } finally {
       if (mounted) {
@@ -210,7 +211,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         padding: const EdgeInsets.all(4),
                         child: CircleAvatar(
                           radius: 38,
-                          backgroundColor: Colors.white,
+                          backgroundColor: colorScheme.surface,
                           child: Text(
                             initials,
                             style: theme.textTheme.headlineMedium?.copyWith(
@@ -227,7 +228,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                         _isLoading ? '...' : name,
                         style: theme.textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w800,
-                          color: const Color(0xFF202425),
+                          color: colorScheme.onSurface,
                         ),
                       ),
                     ),
@@ -236,13 +237,16 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                       child: Text(
                         copy.driverProfileDescription,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Color(0xFF7C6D60), height: 1.35),
+                        style: TextStyle(
+                          color: colorScheme.onSurfaceVariant,
+                          height: 1.35,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 14),
                     Card(
                       elevation: 0,
-                      color: Colors.white,
+                      color: colorScheme.surface,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(24),
                         side: BorderSide(
@@ -275,17 +279,17 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                                   const SizedBox(height: 14),
                                   TextField(
                                     controller: _vehicleBrandController,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Vehicle Brand',
-                                      prefixIcon: Icon(Icons.directions_car_filled_outlined),
+                                    decoration: InputDecoration(
+                                      labelText: copy.vehicleBrandLabel,
+                                      prefixIcon: const Icon(Icons.directions_car_filled_outlined),
                                     ),
                                   ),
                                   const SizedBox(height: 14),
                                   TextField(
                                     controller: _vehicleModelController,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Vehicle Model',
-                                      prefixIcon: Icon(Icons.directions_car_filled_outlined),
+                                    decoration: InputDecoration(
+                                      labelText: copy.vehicleModelLabel,
+                                      prefixIcon: const Icon(Icons.directions_car_filled_outlined),
                                     ),
                                   ),
                                   const SizedBox(height: 14),
@@ -305,14 +309,14 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                                           onPressed: _isSaving
                                               ? null
                                               : () => setState(() => _isEditing = false),
-                                          child: const Text('Cancel'),
+                                          child: Text(copy.cancelCta),
                                         ),
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
                                         child: ElevatedButton(
                                           onPressed: _isSaving ? null : _saveProfile,
-                                          child: Text(_isSaving ? 'Saving...' : 'Save'),
+                                          child: Text(_isSaving ? copy.savingProfileCta : copy.saveCta),
                                         ),
                                       ),
                                     ],
@@ -369,7 +373,7 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
                           AppRouter.changePassword,
                         ),
                         icon: const Icon(Icons.lock_reset_rounded),
-                        label: const Text('Change Password'),
+                        label: Text(copy.changePasswordMenuCta),
                         style: OutlinedButton.styleFrom(
                           minimumSize: const Size(double.infinity, 50),
                         ),

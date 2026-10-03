@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -27,7 +28,7 @@ class MapboxDirectionsService {
     );
 
     try {
-      final response = await http.get(uri);
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) {
         return MapboxRouteResult.fallback(from, to);
       }

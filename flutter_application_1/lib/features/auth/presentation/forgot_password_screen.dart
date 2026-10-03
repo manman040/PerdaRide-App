@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/auth_gradient_scaffold.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
@@ -24,9 +25,10 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   Future<void> _sendResetEmail() async {
+    final copy = AppCopy.of(context);
     final email = _emailController.text.trim();
     if (email.isEmpty) {
-      _showMessage('Please enter your email address.');
+      _showMessage(copy.enterEmailError);
       return;
     }
 
@@ -41,7 +43,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         _emailSent = true;
       });
     } catch (e) {
-      _showMessage(_friendlyResetError(e.toString()));
+      _showMessage(_friendlyResetError(copy, e.toString()));
     } finally {
       if (mounted) {
         setState(() {
@@ -51,18 +53,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     }
   }
 
-  String _friendlyResetError(String message) {
+  String _friendlyResetError(AppCopy copy, String message) {
     final lower = message.toLowerCase();
     if (lower.contains('invalid-email')) {
-      return 'Invalid email address.';
+      return copy.invalidEmailError;
     }
     if (lower.contains('user-not-found')) {
-      return 'No account found for that email.';
+      return copy.noAccountForEmailError;
     }
     if (lower.contains('network-request-failed')) {
-      return 'Network issue. Please check your connection.';
+      return copy.networkIssueError;
     }
-    return 'Could not send reset email. Please try again.';
+    return copy.resetEmailFailedError;
   }
 
   void _showMessage(String message) {
@@ -72,23 +74,25 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return AuthGradientScaffold(
-      header: const Column(
+      header: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Forgot',
+            copy.forgotTitle,
             style: TextStyle(
-              color: Color(0xFF1D1B1A),
+              color: theme.colorScheme.onSurface,
               fontSize: 30,
               fontWeight: FontWeight.w700,
             ),
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
-            'Password?',
+            copy.passwordTitle,
             style: TextStyle(
-              color: Color(0xFF1D1B1A),
+              color: theme.colorScheme.onSurface,
               fontSize: 30,
               fontWeight: FontWeight.w700,
             ),
@@ -103,19 +107,20 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFFE9F8EC),
+                color: const Color(0xFF2E9B51).withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFCDEED4)),
+                border: Border.all(
+                  color: const Color(0xFF2E9B51).withValues(alpha: 0.4),
+                ),
               ),
-              child: const Row(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.check_circle_rounded, color: Color(0xFF2E9B51)),
-                  SizedBox(width: 10),
+                  const Icon(Icons.check_circle_rounded, color: Color(0xFF2E9B51)),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'A password reset link has been sent to your email. '
-                      'Please check your inbox.',
+                      copy.resetEmailSentMessage,
                       style: TextStyle(height: 1.45, color: Color(0xFF2E9B51)),
                     ),
                   ),
@@ -132,14 +137,16 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   borderRadius: BorderRadius.circular(18),
                 ),
               ),
-              child: const Text('Back to Login'),
+              child: Text(copy.backToLogin),
             ),
           ] else ...[
             const SizedBox(height: 8),
-            const Text(
-              'Enter the email address associated with your account and '
-              "we'll send you a link to reset your password.",
-              style: TextStyle(color: Color(0xFF9A8A7A), height: 1.4),
+            Text(
+              copy.forgotPasswordDescription,
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 18),
             TextField(
@@ -174,7 +181,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                     borderRadius: BorderRadius.circular(28),
                   ),
                 ),
-                child: Text(_isSending ? 'SENDING...' : 'SEND RESET LINK'),
+                child: Text(_isSending ? copy.sendingCta : copy.sendResetLinkCta),
               ),
             ),
           ],

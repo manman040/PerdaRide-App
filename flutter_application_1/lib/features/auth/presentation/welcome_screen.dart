@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/app_router.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/auth_gradient_scaffold.dart';
 
 class WelcomeScreen extends StatefulWidget {
@@ -15,13 +16,18 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return AuthGradientScaffold(
       header: Row(
         children: [
           const Spacer(),
           IconButton(
             onPressed: () {},
-            icon: const Icon(Icons.more_horiz_rounded, color: Color(0xFF2D2118)),
+            icon: Icon(
+              Icons.more_horiz_rounded,
+              color: theme.colorScheme.onSurface,
+            ),
           ),
         ],
       ),
@@ -54,7 +60,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   ),
                   SizedBox(height: 8),
                   Text(
-                    'PerdaRide',
+                    'Urban Drive',
                     style: TextStyle(
                       color: Color(0xFFF68B1F),
                       fontSize: 18,
@@ -65,27 +71,27 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               ),
             ),
             const SizedBox(height: 36),
-            const Text(
-              'Welcome Back',
+            Text(
+              copy.welcomeBack,
               style: TextStyle(
                 fontSize: 30,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF1D1B1A),
+                color: theme.colorScheme.onSurface,
               ),
             ),
             const SizedBox(height: 14),
-            const Text(
-              'Passenger booking and driver operations\nin one clean experience.',
+            Text(
+              copy.welcomeTagline,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 15,
                 height: 1.5,
-                color: Color(0xFF715746),
+                color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 40),
             _WelcomeActionButton(
-              label: 'LOGIN',
+              label: copy.loginCta,
               filled: true,
               onPressed: () {
                 Navigator.of(context).pushNamed(AppRouter.login);
@@ -93,7 +99,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             ),
             const SizedBox(height: 14),
             _WelcomeActionButton(
-              label: _showSignUpOptions ? 'CLOSE SIGN UP' : 'SIGN UP',
+              label: _showSignUpOptions ? copy.closeSignUpCta : copy.signUpCta,
               filled: false,
               onPressed: () {
                 setState(() {
@@ -110,7 +116,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       child: Column(
                         children: [
                           _RoleFloatingButton(
-                            label: 'Register as User',
+                            label: copy.registerAsUser,
                             icon: Icons.person_outline_rounded,
                             onTap: () {
                               Navigator.of(context).pushNamed(
@@ -120,7 +126,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                           ),
                           const SizedBox(height: 12),
                           _RoleFloatingButton(
-                            label: 'Register as Driver',
+                            label: copy.registerAsDriver,
                             icon: Icons.drive_eta_outlined,
                             onTap: () {
                               Navigator.of(context).pushNamed(
@@ -218,6 +224,7 @@ class _RoleFloatingButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Align(
       alignment: Alignment.centerRight,
       child: Material(
@@ -228,7 +235,7 @@ class _RoleFloatingButton extends StatelessWidget {
           child: Ink(
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: theme.colorScheme.surface,
               borderRadius: BorderRadius.circular(28),
               boxShadow: const [
                 BoxShadow(
@@ -245,8 +252,8 @@ class _RoleFloatingButton extends StatelessWidget {
                 const SizedBox(width: 10),
                 Text(
                   label,
-                  style: const TextStyle(
-                    color: Color(0xFF1D1B1A),
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
