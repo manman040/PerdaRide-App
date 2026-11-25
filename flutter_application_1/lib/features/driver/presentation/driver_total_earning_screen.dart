@@ -170,12 +170,11 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
     final currentUser = _authRepository.currentUser;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F6F6),
       appBar: AppBar(
         title: Text(copy.totalEarningTitle),
       ),
       body: currentUser == null
-          ? const Center(child: Text('Please log in as driver.'))
+          ? Center(child: Text(copy.pleaseLoginAsDriverMessage))
           : StreamBuilder<DatabaseEvent>(
               stream: _bookingRepository.watchAllBookings(),
               builder: (context, snapshot) {
@@ -184,7 +183,7 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                 }
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text('Failed to load earnings: ${snapshot.error}'),
+                    child: Text('${copy.failedToLoadEarningsError}: ${snapshot.error}'),
                   );
                 }
 
@@ -216,6 +215,18 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                           (item) => !paidBookingIds.contains(item.bookingId),
                         )
                         .fold<double>(0, (sum, item) => sum + item.commission);
+                    // Unlike outstandingCommission above, this ignores the
+                    // month/year dropdown -- it's the driver's true overall
+                    // unpaid balance, which is what the payment deadline
+                    // should track. Using the filtered figure would let
+                    // switching to a month with nothing outstanding wipe out
+                    // a deadline for a real unpaid balance sitting in a
+                    // different month.
+                    final totalOutstandingCommission = items
+                        .where(
+                          (item) => !paidBookingIds.contains(item.bookingId),
+                        )
+                        .fold<double>(0, (sum, item) => sum + item.commission);
                     return StreamBuilder<DatabaseEvent>(
                       stream: _databaseRepository.watchPath(
                         'driver_commissions/${currentUser.uid}/payment_deadline',
@@ -224,16 +235,20 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                         final deadline = _parseDeadline(
                           deadlineSnapshot.data?.snapshot.value,
                         );
-                        if (!_deadlineEnsured &&
-                            deadline == null &&
-                            outstandingCommission > 0) {
-                          _deadlineEnsured = true;
-                          unawaited(_ensurePaymentDeadline(currentUser.uid));
+                        final hasOutstanding = totalOutstandingCommission > 0;
+                        if (_lastSyncedHasOutstanding != hasOutstanding) {
+                          _lastSyncedHasOutstanding = hasOutstanding;
+                          unawaited(
+                            _syncPaymentDeadline(
+                              driverId: currentUser.uid,
+                              hasOutstandingCommission: hasOutstanding,
+                            ),
+                          );
                         }
                         return ListView(
                       padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
                       children: [
-                        if (deadline != null && outstandingCommission > 0)
+                        if (deadline != null && totalOutstandingCommission > 0)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 12),
                             child: _DeadlineBanner(deadline: deadline),
@@ -241,15 +256,16 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: theme.colorScheme.surface,
                             borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE7E7E7)),
+                            border: Border.all(color: theme.dividerColor),
                           ),
                           child: Row(
                             children: [
                               Expanded(
                                 child: _dropdownField(
-                                  label: 'MONTH',
+                                  context: context,
+                                  label: copy.monthLabel,
                                   child: DropdownButtonFormField<int>(
                                     value: _selectedMonth,
                                     isExpanded: true,
@@ -279,7 +295,8 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: _dropdownField(
-                                  label: 'YEAR',
+                                  context: context,
+                                  label: copy.yearLabel,
                                   child: DropdownButtonFormField<int>(
                                     value: _selectedYear,
                                     isExpanded: true,
@@ -314,7 +331,7 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                         Container(
                           padding: const EdgeInsets.all(22),
                           decoration: BoxDecoration(
-                            color: Colors.white,
+                            color: theme.colorScheme.surface,
                             borderRadius: BorderRadius.circular(20),
                             boxShadow: const [
                               BoxShadow(
@@ -327,10 +344,10 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text(
-                                'Total Earned',
+                              Text(
+                                copy.totalEarnedLabel,
                                 style: TextStyle(
-                                  color: Color(0xFF808080),
+                                  color: theme.colorScheme.onSurfaceVariant,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -347,8 +364,8 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                               const SizedBox(height: 8),
                               Text(
                                 '${filteredItems.length} ${copy.ridesLabel}',
-                                style: const TextStyle(
-                                  color: Color(0xFF777777),
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurfaceVariant,
                                   fontSize: 15,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -358,7 +375,8 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                                 children: [
                                   Expanded(
                                     child: _summaryChip(
-                                      title: 'Total Commission',
+                                      context: context,
+                                      title: copy.totalCommissionLabel,
                                       value:
                                           'RM${totalCommission.toStringAsFixed(2)}',
                                       valueColor: const Color(0xFFF68B1F),
@@ -367,16 +385,18 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: _summaryChip(
-                                      title: 'Outstanding',
+                                      context: context,
+                                      title: copy.outstandingLabel,
                                       value:
                                           'RM${outstandingCommission.toStringAsFixed(2)}',
-                                      valueColor: const Color(0xFF212121),
+                                      valueColor: theme.colorScheme.onSurface,
                                     ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: _summaryChip(
-                                      title: 'Paid',
+                                      context: context,
+                                      title: copy.paidLabel,
                                       value: 'RM${paidAmount.toStringAsFixed(2)}',
                                       valueColor: const Color(0xFF2E7D32),
                                     ),
@@ -403,7 +423,7 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                                   ),
                                   child: Text(
                                     _isPayingAll
-                                        ? 'Creating bill...'
+                                        ? copy.creatingBillCta
                                         : '${copy.payAllCommissionLabel} (RM${outstandingCommission.toStringAsFixed(2)})',
                                   ),
                                 ),
@@ -413,10 +433,10 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
                         ),
                         const SizedBox(height: 16),
                         if (filteredItems.isEmpty)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 36),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 36),
                             child: Center(
-                              child: Text('No earning records for this filter.'),
+                              child: Text(copy.noEarningRecordsMessage),
                             ),
                           ),
                         ...filteredItems.map(
@@ -447,23 +467,43 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
     return null;
   }
 
-  bool _deadlineEnsured = false;
+  // Tracks whether the driver had any unpaid commission the last time we
+  // synced, so _syncPaymentDeadline only runs when that actually flips
+  // instead of on every rebuild of the nested StreamBuilders above.
+  bool? _lastSyncedHasOutstanding;
 
-  Future<void> _ensurePaymentDeadline(String driverId) async {
+  /// Keeps `driver_commissions/{driverId}/payment_deadline` in lockstep with
+  /// whether the driver currently owes any commission at all. Previously
+  /// this was only ever *created*, never cleared -- so the first deadline a
+  /// driver was ever given stuck around forever, silently governing every
+  /// unrelated balance they'd owe for the rest of their time on the
+  /// platform (pay it off, accrue a brand new unpaid ride next month, and
+  /// the screen would still show the original stale/overdue date instead of
+  /// a fresh 24h window).
+  Future<void> _syncPaymentDeadline({
+    required String driverId,
+    required bool hasOutstandingCommission,
+  }) async {
     try {
       final existing = await _databaseRepository.getData(
         'driver_commissions/$driverId/payment_deadline',
       );
-      if (existing.value != null) return;
-      final deadline = DateTime.now().add(const Duration(hours: 24));
-      await _databaseRepository.updateData('driver_commissions/$driverId', {
-        'payment_deadline': {
-          'time': deadline.millisecondsSinceEpoch,
-          'date': deadline.toIso8601String(),
-          'set_by': 'auto',
-          'set_at': DateTime.now().millisecondsSinceEpoch,
-        },
-      });
+      final hasDeadline = existing.value != null;
+      if (hasOutstandingCommission && !hasDeadline) {
+        final deadline = DateTime.now().add(const Duration(hours: 24));
+        await _databaseRepository.updateData('driver_commissions/$driverId', {
+          'payment_deadline': {
+            'time': deadline.millisecondsSinceEpoch,
+            'date': deadline.toIso8601String(),
+            'set_by': 'auto',
+            'set_at': DateTime.now().millisecondsSinceEpoch,
+          },
+        });
+      } else if (!hasOutstandingCommission && hasDeadline) {
+        await _databaseRepository.removePath(
+          'driver_commissions/$driverId/payment_deadline',
+        );
+      }
     } catch (_) {}
   }
 
@@ -472,12 +512,13 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
     required List<_EarningRecord> items,
   }) async {
     if (_isPayingAll) return;
+    final copy = AppCopy.of(context);
     setState(() {
       _isPayingAll = true;
     });
     try {
       final user = _authRepository.currentUser;
-      if (user == null) throw Exception('Driver not logged in.');
+      if (user == null) throw Exception(copy.driverNotLoggedInError);
       final profile = await _loadDriverProfile(user.uid);
       final reference = _buildReference(user.uid, 'ALL');
       final result = await _toyyibPayService.createBill(
@@ -503,7 +544,7 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Pay all failed: $e')),
+        SnackBar(content: Text('${copy.payAllFailedError}: $e')),
       );
     } finally {
       if (mounted) {
@@ -539,14 +580,19 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
     return 'COMM-${short.toUpperCase()}-$compactSuffix-${tail.substring(tail.length - 6)}';
   }
 
-  Widget _dropdownField({required String label, required Widget child}) {
+  Widget _dropdownField({
+    required BuildContext context,
+    required String label,
+    required Widget child,
+  }) {
+    final theme = Theme.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: Color(0xFF707070),
+          style: TextStyle(
+            color: theme.colorScheme.onSurfaceVariant,
             fontSize: 11,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.5,
@@ -566,50 +612,6 @@ class _DriverTotalEarningScreenState extends State<DriverTotalEarningScreen> {
   }
 }
 
-String _monthName(int month) {
-  const names = <String>[
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
-  ];
-  final idx = month - 1;
-  if (idx < 0 || idx > 11) return '';
-  return names[idx];
-}
-
-String _formatSelectedPeriod(int month, int year) {
-  final m = _monthName(month);
-  return m.isEmpty ? '$year' : '$m $year';
-}
-
-class _FilterPeriodLabel extends StatelessWidget {
-  const _FilterPeriodLabel({required this.month, required this.year});
-
-  final int month;
-  final int year;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      _formatSelectedPeriod(month, year),
-      style: const TextStyle(
-        color: Color(0xFF7A7A7A),
-        fontSize: 12,
-        fontWeight: FontWeight.w600,
-      ),
-    );
-  }
-}
-
 class _EarningTripCard extends StatelessWidget {
   const _EarningTripCard({
     required this.item,
@@ -626,9 +628,9 @@ class _EarningTripCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFEFEFEF)),
+        border: Border.all(color: theme.dividerColor),
         boxShadow: const [
           BoxShadow(
             color: Color(0x10000000),
@@ -654,8 +656,8 @@ class _EarningTripCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   _timeLabel(item.completedAt),
-                  style: const TextStyle(
-                    color: Color(0xFF7B7B7B),
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
                     fontSize: 15,
                   ),
                 ),
@@ -664,8 +666,8 @@ class _EarningTripCard extends StatelessWidget {
                   '${item.pickupAddress} -> ${item.dropoffAddress}',
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xFF666666),
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
                     height: 1.25,
                     fontSize: 13,
                   ),
@@ -688,8 +690,8 @@ class _EarningTripCard extends StatelessWidget {
               const SizedBox(height: 10),
               Text(
                 '${copy.commissionLabel}: RM${item.commission.toStringAsFixed(2)}',
-                style: const TextStyle(
-                  color: Color(0xFF7A7A7A),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -708,13 +710,14 @@ class _DeadlineBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     final isOverdue = DateTime.now().isAfter(deadline);
     final color = isOverdue ? const Color(0xFFD84315) : const Color(0xFFF68B1F);
-    final background = isOverdue ? const Color(0xFFFFECE7) : const Color(0xFFFFF3E6);
+    final background = color.withValues(alpha: 0.14);
     final whenLabel = '${_dateLabel(deadline)}, ${_timeLabel(deadline)}';
     final label = isOverdue
-        ? 'Commission payment overdue since $whenLabel'
-        : 'Pay your outstanding commission by $whenLabel';
+        ? '${copy.commissionOverdueMessage} $whenLabel'
+        : '${copy.payCommissionByMessage} $whenLabel';
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -747,24 +750,26 @@ class _DeadlineBanner extends StatelessWidget {
 }
 
 Widget _summaryChip({
+  required BuildContext context,
   required String title,
   required String value,
   required Color valueColor,
 }) {
+  final theme = Theme.of(context);
   return Container(
     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
     decoration: BoxDecoration(
-      color: const Color(0xFFF8F8F8),
+      color: theme.colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: const Color(0xFFEDEDED)),
+      border: Border.all(color: theme.dividerColor),
     ),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: const TextStyle(
-            color: Color(0xFF7D7D7D),
+          style: TextStyle(
+            color: theme.colorScheme.onSurfaceVariant,
             fontSize: 12,
             fontWeight: FontWeight.w600,
           ),

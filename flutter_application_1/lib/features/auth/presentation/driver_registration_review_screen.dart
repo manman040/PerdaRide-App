@@ -8,6 +8,7 @@ import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
 import '../../../core/services/cloudinary_upload_service.dart';
+import '../../../core/settings/app_copy.dart';
 import '../data/driver_registration_draft.dart';
 import 'registration_widgets.dart';
 
@@ -43,10 +44,12 @@ class _DriverRegistrationReviewScreenState
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return RegistrationScaffold(
-      header: const RegistrationHeader(
-        title: 'Driver Registration',
-        subtitle: 'Review & Submit',
+      header: RegistrationHeader(
+        title: copy.driverRegistrationTitle,
+        subtitle: copy.reviewAndSubmitSubtitle,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -54,29 +57,36 @@ class _DriverRegistrationReviewScreenState
           const _HeroSummary(),
           const SizedBox(height: 18),
           _reviewCard(
-            title: 'Personal Information',
+            context,
+            title: copy.personalInformationTitle,
             icon: Icons.person_outline_rounded,
             child: Column(
               children: [
-                _detailRow('Email', _draft.email),
-                _detailRow('Name', _draft.name),
-                _detailRow('ID Card', _draft.idCard),
-                _detailRow('Phone', _draft.phone, isLast: true),
+                _detailRow(context, copy.email, _draft.email),
+                _detailRow(context, copy.nameFieldLabel, _draft.name),
+                _detailRow(context, copy.idCardShortLabel, _draft.idCard),
+                _detailRow(context, copy.phoneLabel, _draft.phone, isLast: true),
               ],
             ),
           ),
           const SizedBox(height: 14),
           _reviewCard(
-            title: 'Vehicle Information',
+            context,
+            title: copy.vehicleInformationTitle,
             icon: Icons.directions_car_outlined,
             child: Column(
               children: [
-                _detailRow('Brand', _draft.brand),
-                _detailRow('Model', _draft.model),
-                _detailRow('Years Make', _draft.yearMake),
-                _detailRow('Plate Number', _draft.plateNumber),
+                _detailRow(context, copy.brandFieldLabel, _draft.brand),
+                _detailRow(context, copy.modelFieldLabel, _draft.model),
+                _detailRow(context, copy.yearsMakeFieldLabel, _draft.yearMake),
                 _detailRow(
-                  'Passenger Capacity',
+                  context,
+                  copy.plateNumberFieldLabel,
+                  _draft.plateNumber,
+                ),
+                _detailRow(
+                  context,
+                  copy.capacityLabel,
                   _draft.passengerCapacity,
                   isLast: true,
                 ),
@@ -85,66 +95,112 @@ class _DriverRegistrationReviewScreenState
           ),
           const SizedBox(height: 14),
           _reviewCard(
-            title: 'Document Checklist',
+            context,
+            title: copy.documentChecklistTitle,
             icon: Icons.verified_user_outlined,
             child: Wrap(
               spacing: 10,
               runSpacing: 10,
               children: [
-                _statusChip('Profile Photo', _draft.profilePicturePath != null),
-                _statusChip('Car Front', _draft.carPhotoFrontPath != null),
-                _statusChip('Car Back', _draft.carPhotoBackPath != null),
-                _statusChip('Car Left', _draft.carPhotoLeftPath != null),
-                _statusChip('Car Right', _draft.carPhotoRightPath != null),
-                _statusChip('IC Front', _draft.icPhotoFrontPath != null),
-                _statusChip('IC Back', _draft.icPhotoBackPath != null),
                 _statusChip(
-                  'License Front',
+                  context,
+                  copy.profilePhotoChipLabel,
+                  _draft.profilePicturePath != null,
+                ),
+                _statusChip(
+                  context,
+                  copy.carFrontChipLabel,
+                  _draft.carPhotoFrontPath != null,
+                ),
+                _statusChip(
+                  context,
+                  copy.carBackChipLabel,
+                  _draft.carPhotoBackPath != null,
+                ),
+                _statusChip(
+                  context,
+                  copy.carLeftChipLabel,
+                  _draft.carPhotoLeftPath != null,
+                ),
+                _statusChip(
+                  context,
+                  copy.carRightChipLabel,
+                  _draft.carPhotoRightPath != null,
+                ),
+                _statusChip(
+                  context,
+                  copy.icFrontChipLabel,
+                  _draft.icPhotoFrontPath != null,
+                ),
+                _statusChip(
+                  context,
+                  copy.icBackChipLabel,
+                  _draft.icPhotoBackPath != null,
+                ),
+                _statusChip(
+                  context,
+                  copy.licenseFrontChipLabel,
                   _draft.licensePhotoFrontPath != null,
                 ),
                 _statusChip(
-                  'License Back',
+                  context,
+                  copy.licenseBackChipLabel,
                   _draft.licensePhotoBackPath != null,
                 ),
-                _statusChip('Grant', _draft.grantPhotoPath != null),
+                _statusChip(
+                  context,
+                  copy.grantChipLabel,
+                  _draft.grantPhotoPath != null,
+                ),
               ],
             ),
           ),
           const SizedBox(height: 14),
           _reviewCard(
-            title: 'Uploaded Images',
+            context,
+            title: copy.uploadedImagesTitle,
             icon: Icons.photo_library_outlined,
             child: _hasAnyUploadedImage
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _imageSection(
-                        'Profile',
-                        [_thumbCard('Profile', _draft.profilePicturePath)],
-                      ),
-                      _imageSection('Car', [
-                        _thumbCard('Front', _draft.carPhotoFrontPath),
-                        _thumbCard('Back', _draft.carPhotoBackPath),
-                        _thumbCard('Left', _draft.carPhotoLeftPath),
-                        _thumbCard('Right', _draft.carPhotoRightPath),
-                      ]),
-                      _imageSection('IC', [
-                        _thumbCard('IC Front', _draft.icPhotoFrontPath),
-                        _thumbCard('IC Back', _draft.icPhotoBackPath),
-                      ]),
-                      _imageSection('License', [
+                      _imageSection(context, copy.profileSectionLabel, [
                         _thumbCard(
-                          'License Front',
+                          context,
+                          copy.profileSectionLabel,
+                          _draft.profilePicturePath,
+                        ),
+                      ]),
+                      _imageSection(context, copy.carSectionLabel, [
+                        _thumbCard(context, copy.frontLabel, _draft.carPhotoFrontPath),
+                        _thumbCard(context, copy.backLabel, _draft.carPhotoBackPath),
+                        _thumbCard(context, copy.leftLabel, _draft.carPhotoLeftPath),
+                        _thumbCard(context, copy.rightLabel, _draft.carPhotoRightPath),
+                      ]),
+                      _imageSection(context, copy.icSectionLabel, [
+                        _thumbCard(
+                          context,
+                          copy.icFrontChipLabel,
+                          _draft.icPhotoFrontPath,
+                        ),
+                        _thumbCard(context, copy.icBackChipLabel, _draft.icPhotoBackPath),
+                      ]),
+                      _imageSection(context, copy.licenseSectionLabel, [
+                        _thumbCard(
+                          context,
+                          copy.licenseFrontChipLabel,
                           _draft.licensePhotoFrontPath,
                         ),
                         _thumbCard(
-                          'License Back',
+                          context,
+                          copy.licenseBackChipLabel,
                           _draft.licensePhotoBackPath,
                         ),
                       ]),
                       _imageSection(
-                        'Other',
-                        [_thumbCard('Grant', _draft.grantPhotoPath)],
+                        context,
+                        copy.otherSectionLabel,
+                        [_thumbCard(context, copy.grantChipLabel, _draft.grantPhotoPath)],
                         isLast: true,
                       ),
                     ],
@@ -152,13 +208,13 @@ class _DriverRegistrationReviewScreenState
                 : Container(
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFF8F2),
+                      color: theme.colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFF3E4D2)),
+                      border: Border.all(color: theme.dividerColor),
                     ),
-                    child: const Text(
-                      'No images uploaded yet.',
-                      style: TextStyle(color: Color(0xFF8A786A)),
+                    child: Text(
+                      copy.noImagesUploadedMessage,
+                      style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                     ),
                   ),
           ),
@@ -166,27 +222,26 @@ class _DriverRegistrationReviewScreenState
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF3E6),
+              color: theme.colorScheme.primary.withValues(alpha: 0.16),
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
-                color: const Color(0xFFF3C893),
+                color: theme.colorScheme.primary.withValues(alpha: 0.4),
               ),
             ),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
+                const Icon(
                   Icons.info_outline_rounded,
                   color: Color(0xFFF68B1F),
                 ),
-                SizedBox(width: 10),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Please review your information carefully before submitting. '
-                    'Your application will be sent to admin for approval.',
+                    copy.reviewCarefullyNotice,
                     style: TextStyle(
                       height: 1.45,
-                      color: Color(0xFF6A5541),
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),
@@ -195,7 +250,7 @@ class _DriverRegistrationReviewScreenState
           ),
           const SizedBox(height: 18),
           RegistrationActionButton(
-            label: _isSubmitting ? 'Submitting...' : 'Submit Application',
+            label: _isSubmitting ? copy.submittingCta : copy.submitApplicationCta,
             onPressed: _isSubmitting ? () {} : _submitDriverRegistration,
           ),
         ],
@@ -203,15 +258,17 @@ class _DriverRegistrationReviewScreenState
     );
   }
 
-  Widget _reviewCard({
+  Widget _reviewCard(
+    BuildContext context, {
     required String title,
     required IconData icon,
     required Widget child,
   }) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(22),
         boxShadow: const [
           BoxShadow(
@@ -230,7 +287,7 @@ class _DriverRegistrationReviewScreenState
                 width: 38,
                 height: 38,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF1E0),
+                  color: theme.colorScheme.primary.withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(icon, color: const Color(0xFFF68B1F)),
@@ -238,10 +295,10 @@ class _DriverRegistrationReviewScreenState
               const SizedBox(width: 12),
               Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF1D1B1A),
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
             ],
@@ -253,17 +310,19 @@ class _DriverRegistrationReviewScreenState
     );
   }
 
-  Widget _detailRow(String label, String value, {bool isLast = false}) {
+  Widget _detailRow(
+    BuildContext context,
+    String label,
+    String value, {
+    bool isLast = false,
+  }) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
       decoration: BoxDecoration(
         border: isLast
             ? null
-            : const Border(
-                bottom: BorderSide(
-                  color: Color(0xFFF2E4D5),
-                ),
-              ),
+            : Border(bottom: BorderSide(color: theme.dividerColor)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -272,8 +331,8 @@ class _DriverRegistrationReviewScreenState
             width: 118,
             child: Text(
               label,
-              style: const TextStyle(
-                color: Color(0xFF8A786A),
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -281,8 +340,8 @@ class _DriverRegistrationReviewScreenState
           Expanded(
             child: Text(
               value.isEmpty ? '-' : value,
-              style: const TextStyle(
-                color: Color(0xFF1D1B1A),
+              style: TextStyle(
+                color: theme.colorScheme.onSurface,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -292,14 +351,17 @@ class _DriverRegistrationReviewScreenState
     );
   }
 
-  Widget _statusChip(String label, bool ok) {
+  Widget _statusChip(BuildContext context, String label, bool ok) {
+    final theme = Theme.of(context);
+    const okAccent = Color(0xFF2E9B51);
+    const warnAccent = Color(0xFFD96A43);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: ok ? const Color(0xFFE9F8EC) : const Color(0xFFFFEFE7),
+        color: (ok ? okAccent : warnAccent).withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: ok ? const Color(0xFFCDEED4) : const Color(0xFFF4C7B5),
+          color: (ok ? okAccent : warnAccent).withValues(alpha: 0.4),
         ),
       ),
       child: Row(
@@ -308,13 +370,13 @@ class _DriverRegistrationReviewScreenState
           Icon(
             ok ? Icons.check_circle_rounded : Icons.cancel_rounded,
             size: 16,
-            color: ok ? const Color(0xFF2E9B51) : const Color(0xFFD96A43),
+            color: ok ? okAccent : warnAccent,
           ),
           const SizedBox(width: 8),
           Text(
             label,
-            style: const TextStyle(
-              color: Color(0xFF3D332C),
+            style: TextStyle(
+              color: theme.colorScheme.onSurface,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -324,12 +386,14 @@ class _DriverRegistrationReviewScreenState
   }
 
   Widget _imageSection(
+    BuildContext context,
     String title,
     List<Widget?> children, {
     bool isLast = false,
   }) {
     final visible = children.whereType<Widget>().toList();
     if (visible.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
     return Padding(
       padding: EdgeInsets.only(bottom: isLast ? 0 : 18),
       child: Column(
@@ -337,10 +401,10 @@ class _DriverRegistrationReviewScreenState
         children: [
           Text(
             title.toUpperCase(),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF8A786A),
+              color: theme.colorScheme.onSurfaceVariant,
               letterSpacing: 0.6,
             ),
           ),
@@ -351,8 +415,9 @@ class _DriverRegistrationReviewScreenState
     );
   }
 
-  Widget? _thumbCard(String label, String? path) {
+  Widget? _thumbCard(BuildContext context, String label, String? path) {
     if (path == null || path.isEmpty) return null;
+    final theme = Theme.of(context);
     return SizedBox(
       width: 86,
       child: Column(
@@ -372,9 +437,9 @@ class _DriverRegistrationReviewScreenState
             label,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
-              color: Color(0xFF6A5541),
+              color: theme.colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -384,6 +449,7 @@ class _DriverRegistrationReviewScreenState
   }
 
   Future<void> _submitDriverRegistration() async {
+    final copy = AppCopy.of(context);
     if (_draft.email.isEmpty ||
         _draft.password.isEmpty ||
         _draft.name.isEmpty ||
@@ -401,7 +467,7 @@ class _DriverRegistrationReviewScreenState
         _draft.carPhotoBackPath == null ||
         _draft.carPhotoLeftPath == null ||
         _draft.carPhotoRightPath == null) {
-      _showMessage('Registration data is incomplete. Please check previous steps.');
+      _showMessage(copy.registrationIncompleteError);
       return;
     }
 
@@ -432,7 +498,7 @@ class _DriverRegistrationReviewScreenState
       if (user == null) {
         throw FirebaseAuthException(
           code: 'user-null',
-          message: 'Driver account creation failed.',
+          message: copy.driverAccountCreationFailedError,
         );
       }
 
@@ -500,7 +566,7 @@ class _DriverRegistrationReviewScreenState
       );
 
       if (!mounted) return;
-      _showMessage('Driver registration submitted successfully!');
+      _showMessage(copy.driverRegistrationSubmittedMessage);
       _draft.clear();
       Navigator.of(context).pushNamedAndRemoveUntil(
         AppRouter.driverPendingApproval,
@@ -510,19 +576,23 @@ class _DriverRegistrationReviewScreenState
       await _rollbackFailedRegistration(user);
       if (!mounted) return;
       _showMessage(
-        'Submit failed at $_submitStage: ${_friendlyAuthError(e)}',
+        '${copy.submitFailedAtPrefix} ${_stageLabel(copy, _submitStage)}: '
+        '${_friendlyAuthError(copy, e)}',
       );
     } on FirebaseException catch (e) {
       await _rollbackFailedRegistration(user);
       if (!mounted) return;
       final message = e.message ?? e.code;
       _showMessage(
-        'Submit failed at $_submitStage [${e.plugin}:${e.code}]: $message',
+        '${copy.submitFailedAtPrefix} ${_stageLabel(copy, _submitStage)} '
+        '[${e.plugin}:${e.code}]: $message',
       );
     } catch (_) {
       await _rollbackFailedRegistration(user);
       if (!mounted) return;
-      _showMessage('Failed to submit driver registration at $_submitStage.');
+      _showMessage(
+        '${copy.failedToSubmitAtPrefix} ${_stageLabel(copy, _submitStage)}.',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -552,18 +622,35 @@ class _DriverRegistrationReviewScreenState
     }
   }
 
-  String _friendlyAuthError(FirebaseAuthException e) {
+  String _friendlyAuthError(AppCopy copy, FirebaseAuthException e) {
     switch (e.code) {
       case 'email-already-in-use':
-        return 'This email is already registered.';
+        return copy.emailAlreadyRegisteredError;
       case 'invalid-email':
-        return 'Invalid email address.';
+        return copy.invalidEmailError;
       case 'weak-password':
-        return 'Password is too weak.';
+        return copy.weakPasswordError;
       case 'network-request-failed':
-        return 'Network error. Check your connection and try again.';
+        return copy.networkErrorTryAgainError;
       default:
-        return e.message ?? 'Registration failed.';
+        return e.message ?? copy.registrationFailedError;
+    }
+  }
+
+  /// Translates the internal `_submitStage` key (an implementation-detail
+  /// identifier, not user data) into the copy shown inside failure snackbars.
+  String _stageLabel(AppCopy copy, String stage) {
+    switch (stage) {
+      case 'uploading images':
+        return copy.stageUploadingImages;
+      case 'creating account':
+        return copy.stageCreatingAccount;
+      case 'saving driver profile':
+        return copy.stageSavingDriverProfile;
+      case 'saving approval request':
+        return copy.stageSavingApprovalRequest;
+      default:
+        return stage;
     }
   }
 
@@ -658,6 +745,7 @@ class _HeroSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -678,9 +766,9 @@ class _HeroSummary extends StatelessWidget {
           ),
         ],
       ),
-      child: const Row(
+      child: Row(
         children: [
-          CircleAvatar(
+          const CircleAvatar(
             radius: 28,
             backgroundColor: Color(0x33FFFFFF),
             child: Icon(
@@ -689,23 +777,23 @@ class _HeroSummary extends StatelessWidget {
               size: 28,
             ),
           ),
-          SizedBox(width: 14),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Final Review',
-                  style: TextStyle(
+                  copy.finalReviewTitle,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 22,
                     fontWeight: FontWeight.w800,
                   ),
                 ),
-                SizedBox(height: 6),
+                const SizedBox(height: 6),
                 Text(
-                  'Check your driver registration before sending it to admin.',
-                  style: TextStyle(
+                  copy.finalReviewDescription,
+                  style: const TextStyle(
                     color: Color(0xFFFFF3E3),
                     height: 1.45,
                   ),

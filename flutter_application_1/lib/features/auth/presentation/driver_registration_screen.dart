@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/app_router.dart';
+import '../../../core/settings/app_copy.dart';
 import '../data/driver_registration_draft.dart';
 import 'registration_widgets.dart';
 
@@ -52,49 +53,50 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final copy = AppCopy.of(context);
     return RegistrationScaffold(
-      header: const RegistrationHeader(
-        title: 'Driver Registration',
-        subtitle: 'Step 1 of 3',
+      header: RegistrationHeader(
+        title: copy.driverRegistrationTitle,
+        subtitle: copy.driverRegistrationStep1Subtitle,
       ),
       child: Column(
         children: [
-          const SectionTitle('Driver Registration'),
+          SectionTitle(copy.driverRegistrationTitle),
           PicturePickerCard(
-            label: 'Profile Picture',
+            label: copy.profilePictureLabel,
             icon: Icons.add_a_photo_outlined,
             imagePath: _profilePicturePath,
             onTap: _pickProfilePhoto,
           ),
           const SizedBox(height: 28),
           RegistrationField(
-            hint: 'Email',
+            hint: copy.email,
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
           ),
-          RegistrationField(hint: 'Name', controller: _nameController),
+          RegistrationField(hint: copy.nameFieldLabel, controller: _nameController),
           RegistrationField(
-            hint: 'Identification card',
+            hint: copy.idCard,
             controller: _idCardController,
           ),
           RegistrationField(
-            hint: 'No. Phone',
+            hint: copy.phoneFieldHint,
             controller: _phoneController,
             keyboardType: TextInputType.phone,
           ),
           RegistrationField(
-            hint: 'Password',
+            hint: copy.passwordLabel,
             controller: _passwordController,
             obscureText: true,
           ),
           RegistrationField(
-            hint: 'Confirm Password',
+            hint: copy.confirmPasswordHint,
             controller: _confirmPasswordController,
             obscureText: true,
           ),
           const SizedBox(height: 10),
           RegistrationActionButton(
-            label: 'Continue',
+            label: copy.continueCta,
             onPressed: _continueToVehicleDetails,
           ),
         ],
@@ -103,6 +105,7 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
   }
 
   Future<void> _pickProfilePhoto() async {
+    final copy = AppCopy.of(context);
     try {
       final source = await _pickSource();
       if (source == null) return;
@@ -117,15 +120,14 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
         _profilePicturePath = file.path;
       });
     } on MissingPluginException {
-      _showMessage(
-        'Image picker not ready yet. Run flutter pub get and fully restart app.',
-      );
+      _showMessage(copy.imagePickerNotReadyError);
     } on PlatformException catch (e) {
-      _showMessage('Unable to open picker: ${e.message ?? e.code}');
+      _showMessage('${copy.unableToOpenPickerPrefix} ${e.message ?? e.code}');
     }
   }
 
   Future<ImageSource?> _pickSource() async {
+    final copy = AppCopy.of(context);
     return showModalBottomSheet<ImageSource>(
       context: context,
       builder: (context) {
@@ -135,12 +137,12 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
             children: [
               ListTile(
                 leading: const Icon(Icons.camera_alt_outlined),
-                title: const Text('Camera'),
+                title: Text(copy.cameraOption),
                 onTap: () => Navigator.of(context).pop(ImageSource.camera),
               ),
               ListTile(
                 leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Gallery'),
+                title: Text(copy.galleryOption),
                 onTap: () => Navigator.of(context).pop(ImageSource.gallery),
               ),
             ],
@@ -151,6 +153,7 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
   }
 
   void _continueToVehicleDetails() {
+    final copy = AppCopy.of(context);
     final email = _emailController.text.trim();
     final name = _nameController.text.trim();
     final idCard = _idCardController.text.trim();
@@ -164,19 +167,19 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
         phone.isEmpty ||
         password.isEmpty ||
         confirmPassword.isEmpty) {
-      _showMessage('Please fill in all fields.');
+      _showMessage(copy.fillAllFieldsError);
       return;
     }
     if (!_emailPattern.hasMatch(email)) {
-      _showMessage('Please enter a valid email.');
+      _showMessage(copy.validEmailError);
       return;
     }
     if (password.length < 6) {
-      _showMessage('Password must be at least 6 characters.');
+      _showMessage(copy.passwordMinLengthError);
       return;
     }
     if (password != confirmPassword) {
-      _showMessage('Passwords do not match.');
+      _showMessage(copy.passwordsDoNotMatchError);
       return;
     }
 

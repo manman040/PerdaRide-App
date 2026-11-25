@@ -36,7 +36,7 @@ class ToyyibPayService {
       'billTo': driverName.isEmpty ? 'Driver' : driverName,
       'billEmail': driverEmail.isEmpty ? '$driverId@perdaride.app' : driverEmail,
       'billName': 'Pay Commission',
-      'billDescription': 'Pay commission to company PerdaRide',
+      'billDescription': 'Pay commission to company Urban Drive',
       'billPhone': _cleanPhone(driverPhone),
     };
 

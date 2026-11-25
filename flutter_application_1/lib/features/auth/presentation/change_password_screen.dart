@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/auth_gradient_scaffold.dart';
 
 class ChangePasswordScreen extends StatefulWidget {
@@ -28,20 +29,21 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 
   Future<void> _submit() async {
+    final copy = AppCopy.of(context);
     final current = _currentPasswordController.text;
     final newPassword = _newPasswordController.text;
     final confirm = _confirmPasswordController.text;
 
     if (current.isEmpty || newPassword.isEmpty || confirm.isEmpty) {
-      _showMessage('Please fill in all fields.');
+      _showMessage(copy.fillAllFieldsError);
       return;
     }
     if (newPassword.length < 6) {
-      _showMessage('New password must be at least 6 characters.');
+      _showMessage(copy.passwordTooShortError);
       return;
     }
     if (newPassword != confirm) {
-      _showMessage('New password and confirmation do not match.');
+      _showMessage(copy.passwordMismatchError);
       return;
     }
 
@@ -59,7 +61,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         _isDone = true;
       });
     } catch (e) {
-      _showMessage(_friendlyError(e.toString()));
+      _showMessage(_friendlyError(copy, e.toString()));
     } finally {
       if (mounted) {
         setState(() {
@@ -69,18 +71,18 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
     }
   }
 
-  String _friendlyError(String message) {
+  String _friendlyError(AppCopy copy, String message) {
     final lower = message.toLowerCase();
     if (lower.contains('wrong-password') || lower.contains('invalid-credential')) {
-      return 'Current password is incorrect.';
+      return copy.currentPasswordIncorrectError;
     }
     if (lower.contains('weak-password')) {
-      return 'New password is too weak.';
+      return copy.passwordTooWeakError;
     }
     if (lower.contains('network-request-failed')) {
-      return 'Network issue. Please check your connection.';
+      return copy.networkIssueError;
     }
-    return 'Could not change password. Please try again.';
+    return copy.changePasswordFailedError;
   }
 
   void _showMessage(String message) {
@@ -90,23 +92,25 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return AuthGradientScaffold(
-      header: const Column(
+      header: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Change',
+            copy.changeTitle,
             style: TextStyle(
-              color: Color(0xFF1D1B1A),
+              color: theme.colorScheme.onSurface,
               fontSize: 30,
               fontWeight: FontWeight.w700,
             ),
           ),
-          SizedBox(height: 4),
+          const SizedBox(height: 4),
           Text(
-            'Password',
+            copy.passwordLabel,
             style: TextStyle(
-              color: Color(0xFF1D1B1A),
+              color: theme.colorScheme.onSurface,
               fontSize: 30,
               fontWeight: FontWeight.w700,
             ),
@@ -121,19 +125,21 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: const Color(0xFFE9F8EC),
+                color: const Color(0xFF2E9B51).withValues(alpha: 0.14),
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFCDEED4)),
+                border: Border.all(
+                  color: const Color(0xFF2E9B51).withValues(alpha: 0.4),
+                ),
               ),
-              child: const Row(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(Icons.check_circle_rounded, color: Color(0xFF2E9B51)),
-                  SizedBox(width: 10),
+                  const Icon(Icons.check_circle_rounded, color: Color(0xFF2E9B51)),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Your password has been updated.',
-                      style: TextStyle(height: 1.45, color: Color(0xFF2E9B51)),
+                      copy.passwordUpdatedMessage,
+                      style: const TextStyle(height: 1.45, color: Color(0xFF2E9B51)),
                     ),
                   ),
                 ],
@@ -149,39 +155,42 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                   borderRadius: BorderRadius.circular(18),
                 ),
               ),
-              child: const Text('Back to Profile'),
+              child: Text(copy.backToProfile),
             ),
           ] else ...[
             const SizedBox(height: 8),
-            const Text(
-              'Enter your current password and choose a new one.',
-              style: TextStyle(color: Color(0xFF9A8A7A), height: 1.4),
+            Text(
+              copy.changePasswordDescription,
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
             ),
             const SizedBox(height: 18),
             TextField(
               controller: _currentPasswordController,
               obscureText: true,
-              decoration: const InputDecoration(
-                hintText: 'Current password',
-                prefixIcon: Icon(Icons.lock_outline_rounded),
+              decoration: InputDecoration(
+                hintText: copy.currentPasswordHint,
+                prefixIcon: const Icon(Icons.lock_outline_rounded),
               ),
             ),
             const SizedBox(height: 14),
             TextField(
               controller: _newPasswordController,
               obscureText: true,
-              decoration: const InputDecoration(
-                hintText: 'New password',
-                prefixIcon: Icon(Icons.lock_reset_rounded),
+              decoration: InputDecoration(
+                hintText: copy.newPasswordHint,
+                prefixIcon: const Icon(Icons.lock_reset_rounded),
               ),
             ),
             const SizedBox(height: 14),
             TextField(
               controller: _confirmPasswordController,
               obscureText: true,
-              decoration: const InputDecoration(
-                hintText: 'Confirm new password',
-                prefixIcon: Icon(Icons.lock_reset_rounded),
+              decoration: InputDecoration(
+                hintText: copy.confirmNewPasswordHint,
+                prefixIcon: const Icon(Icons.lock_reset_rounded),
               ),
             ),
             const SizedBox(height: 28),
@@ -208,7 +217,7 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
                     borderRadius: BorderRadius.circular(28),
                   ),
                 ),
-                child: Text(_isSaving ? 'SAVING...' : 'UPDATE PASSWORD'),
+                child: Text(_isSaving ? copy.savingCta : copy.updatePasswordCta),
               ),
             ),
           ],

@@ -6,7 +6,10 @@ import '../../../app/app_router.dart';
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
+import '../../../core/firebase/account_status.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/app_shell.dart';
+import '../../booking/data/booking_repository.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -22,6 +25,7 @@ class _SplashScreenState extends State<SplashScreen> {
   );
   late final FirebaseDatabaseRepository _databaseRepository =
       FirebaseDatabaseRepository(_firebase);
+  final _bookingRepository = BookingRepository();
 
   @override
   void initState() {
@@ -48,6 +52,19 @@ class _SplashScreenState extends State<SplashScreen> {
       );
       if (!mounted) return;
 
+      // Disabled by the admin: sign out and explain on the login screen.
+      if (AccountStatus.isDisabled(driverSnapshot.value) ||
+          AccountStatus.isDisabled(usersSnapshot.value)) {
+        final notice = AppCopy.of(context).accountDisabledError;
+        await _authRepository.signOut();
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed(
+          AppRouter.login,
+          arguments: <String, dynamic>{'notice': notice},
+        );
+        return;
+      }
+
       if (driverSnapshot.exists) {
         final driverValue = driverSnapshot.value;
         final rawStatus = driverValue is Map
@@ -55,9 +72,30 @@ class _SplashScreenState extends State<SplashScreen> {
             : null;
         final status = (rawStatus?.toString() ?? 'approved').trim();
         if (status.isEmpty || status == 'approved') {
-          Navigator.of(
-            context,
-          ).pushReplacementNamed(AppRouter.driverDashboard);
+          final activeRide = await _bookingRepository.findActiveBookingForDriver(
+            user.uid,
+          );
+          if (!mounted) return;
+          if (activeRide != null) {
+            Navigator.of(context).pushReplacementNamed(
+              AppRouter.driverActiveRide,
+              arguments: <String, dynamic>{
+                'bookingId': activeRide.bookingId,
+                'pickupPoint': activeRide.pickupPoint,
+                'pickupLabel': activeRide.pickupLabel,
+                'dropoffPoint': activeRide.dropoffPoint,
+                'dropoffLabel': activeRide.dropoffLabel,
+                'paymentMethod': activeRide.paymentMethod,
+                'packageLabel': activeRide.packageLabel,
+                'priceLabel': activeRide.fareLabel,
+                'distanceKm': activeRide.distanceLabel,
+              },
+            );
+          } else {
+            Navigator.of(
+              context,
+            ).pushReplacementNamed(AppRouter.driverDashboard);
+          }
         } else {
           Navigator.of(
             context,
@@ -67,7 +105,27 @@ class _SplashScreenState extends State<SplashScreen> {
       }
 
       if (usersSnapshot.exists) {
-        Navigator.of(context).pushReplacementNamed(AppRouter.userDashboard);
+        final activeBooking = await _bookingRepository.findActiveBookingForRider(
+          user.uid,
+        );
+        if (!mounted) return;
+        if (activeBooking != null) {
+          Navigator.of(context).pushReplacementNamed(
+            AppRouter.userBookingStatus,
+            arguments: <String, dynamic>{
+              'bookingId': activeBooking.bookingId,
+              'pickupPoint': activeBooking.pickupPoint,
+              'pickupLabel': activeBooking.pickupLabel,
+              'dropoffPoint': activeBooking.dropoffPoint,
+              'dropoffLabel': activeBooking.dropoffLabel,
+              'paymentMethod': activeBooking.paymentMethod,
+              'packageLabel': activeBooking.packageLabel,
+              'fareLabel': activeBooking.fareLabel,
+            },
+          );
+        } else {
+          Navigator.of(context).pushReplacementNamed(AppRouter.userDashboard);
+        }
         return;
       }
     } catch (_) {}
@@ -78,12 +136,13 @@ class _SplashScreenState extends State<SplashScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return const AppShell(
+    final copy = AppCopy.of(context);
+    return AppShell(
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            DecoratedBox(
+            const DecoratedBox(
               decoration: BoxDecoration(
                 color: Color(0xFF121212),
                 borderRadius: BorderRadius.all(Radius.circular(4)),
@@ -99,7 +158,7 @@ class _SplashScreenState extends State<SplashScreen> {
                     ),
                     SizedBox(height: 8),
                     Text(
-                      'PerdaRide',
+                      'Urban Drive',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w800,
@@ -110,8 +169,8 @@ class _SplashScreenState extends State<SplashScreen> {
                 ),
               ),
             ),
-            SizedBox(height: 20),
-            Text('Passenger and driver services in one app.'),
+            const SizedBox(height: 20),
+            Text(copy.splashTagline),
           ],
         ),
       ),

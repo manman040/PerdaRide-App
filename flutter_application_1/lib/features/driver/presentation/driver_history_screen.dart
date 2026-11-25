@@ -24,7 +24,11 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
   final Map<String, String> _commentsByBookingId = <String, String>{};
   bool _ratingsLoaded = false;
 
-  List<_DriverHistoryItem> _extractItems(DatabaseEvent event, String driverId) {
+  List<_DriverHistoryItem> _extractItems(
+    DatabaseEvent event,
+    String driverId,
+    AppCopy copy,
+  ) {
     final value = event.snapshot.value;
     if (value is! Map) return const [];
 
@@ -49,7 +53,7 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
         _DriverHistoryItem(
           bookingId: bookingId,
           userId: (raw['userId'] ?? '').toString(),
-          passengerName: _resolvePassengerName(raw),
+          passengerName: _resolvePassengerName(raw, copy),
           pickupAddress: pickupAddress,
           dropoffAddress: dropoffAddress,
           completedAt: _parseTimestamp(raw['updatedAt'] ?? raw['createdAt']),
@@ -87,24 +91,24 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
     return true;
   }
 
-  String _resolvePassengerName(Map raw) {
+  String _resolvePassengerName(Map raw, AppCopy copy) {
     final userName = (raw['userName'] ?? '').toString().trim();
     if (userName.isNotEmpty && userName != '-') return userName;
     final userEmail = (raw['userEmail'] ?? '').toString().trim();
     if (userEmail.isNotEmpty && userEmail != '-') return userEmail;
-    return 'Unknown Passenger';
+    return copy.unknownPassengerLabel;
   }
 
-  String _passengerName(_DriverHistoryItem item) {
+  String _passengerName(_DriverHistoryItem item, AppCopy copy) {
     final byUserId = _userNamesById[item.userId];
     if (byUserId != null && byUserId.trim().isNotEmpty) {
       return byUserId;
     }
     if (item.passengerName.trim().isNotEmpty &&
-        item.passengerName != 'Unknown Passenger') {
+        item.passengerName != copy.unknownPassengerLabel) {
       return item.passengerName;
     }
-    return 'Unknown Passenger';
+    return copy.unknownPassengerLabel;
   }
 
   Future<void> _hydratePassengerNames(List<_DriverHistoryItem> items) async {
@@ -184,21 +188,20 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
     final currentUser = _authRepository.currentUser;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F4EF),
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        foregroundColor: const Color(0xFF1F1F1F),
+        foregroundColor: theme.colorScheme.onSurface,
         elevation: 0,
         title: Text(
           copy.driverHistoryTitle,
-          style: const TextStyle(
-            color: Color(0xFF1F1F1F),
+          style: TextStyle(
+            color: theme.colorScheme.onSurface,
             fontWeight: FontWeight.w800,
           ),
         ),
       ),
       body: currentUser == null
-          ? const Center(child: Text('Please log in as driver.'))
+          ? Center(child: Text(copy.pleaseLoginAsDriverMessage))
           : StreamBuilder<DatabaseEvent>(
               stream: _bookingRepository.watchAllBookings(),
               builder: (context, snapshot) {
@@ -207,17 +210,17 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
                 }
                 if (snapshot.hasError) {
                   return Center(
-                    child: Text('Failed to load history: ${snapshot.error}'),
+                    child: Text('${copy.failedToLoadHistoryError}: ${snapshot.error}'),
                   );
                 }
 
                 final items = snapshot.hasData
-                    ? _extractItems(snapshot.data!, currentUser.uid)
+                    ? _extractItems(snapshot.data!, currentUser.uid, copy)
                     : const <_DriverHistoryItem>[];
 
                 if (items.isEmpty) {
-                  return const Center(
-                    child: Text('No completed rides yet.'),
+                  return Center(
+                    child: Text(copy.noCompletedRidesMessage),
                   );
                 }
                 _hydratePassengerNames(items);
@@ -232,7 +235,7 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
                     return Container(
                       padding: const EdgeInsets.all(18),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: theme.colorScheme.surface,
                         borderRadius: BorderRadius.circular(22),
                         boxShadow: const [
                           BoxShadow(
@@ -246,7 +249,7 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _passengerName(item),
+                            _passengerName(item, copy),
                             style: theme.textTheme.titleLarge?.copyWith(
                               fontWeight: FontWeight.w800,
                             ),
@@ -254,24 +257,24 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
                           const SizedBox(height: 12),
                           Text(
                             '${copy.pickupHistoryLabel}: ${item.pickupAddress}',
-                            style: const TextStyle(
-                              color: Color(0xFF666666),
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurfaceVariant,
                               height: 1.3,
                             ),
                           ),
                           const SizedBox(height: 10),
                           Text(
                             '${copy.dropoffHistoryLabel}: ${item.dropoffAddress}',
-                            style: const TextStyle(
-                              color: Color(0xFF666666),
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurfaceVariant,
                               height: 1.3,
                             ),
                           ),
                           const SizedBox(height: 12),
                           Text(
                             '${_dateLabel(item.completedAt)}, ${_timeLabel(item.completedAt)}',
-                            style: const TextStyle(
-                              color: Color(0xFF7B7B7B),
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurfaceVariant,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -307,8 +310,8 @@ class _DriverHistoryScreenState extends State<DriverHistoryScreen> {
                             const SizedBox(height: 10),
                             Text(
                               'Comment: ${_commentsByBookingId[item.bookingId]}',
-                              style: const TextStyle(
-                                color: Color(0xFF666666),
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurfaceVariant,
                                 fontStyle: FontStyle.italic,
                               ),
                             ),

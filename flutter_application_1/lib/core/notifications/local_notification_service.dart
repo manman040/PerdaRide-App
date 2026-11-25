@@ -12,7 +12,7 @@ class LocalNotificationService {
   static const _channel = AndroidNotificationDetails(
     'ride_events',
     'Ride Updates',
-    channelDescription: 'Booking status and chat updates for PerdaRide',
+    channelDescription: 'Booking status and chat updates for Urban Drive',
     importance: Importance.high,
     priority: Priority.high,
   );

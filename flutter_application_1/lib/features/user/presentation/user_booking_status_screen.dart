@@ -9,6 +9,7 @@ import '../../../app/app_router.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
 import '../../../core/notifications/ride_notification_service.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/booking_chat_sheet.dart';
 import '../../../core/widgets/perda_map_view.dart';
 import '../../booking/data/booking_repository.dart';
@@ -75,6 +76,7 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
   List<LatLng> _routePoints = [];
   List<LatLng> _driverRoutePoints = [];
   OsrmRouteResult? _routeResult;
+  OsrmRouteResult? _driverRouteResult;
   LatLng? _driverPoint;
   String _trackedDriverId = '';
   bool _isShowingDriverRoute = false;
@@ -98,13 +100,21 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final meta = _statusMeta(_status);
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
+    final meta = _statusMeta(_status, copy);
+    // Once the driver's live route is being tracked, prefer it over the
+    // static pickup->dropoff estimate from booking time -- otherwise this
+    // tag drifts out of sync with the driver's own live navigation view,
+    // which always reflects their current remaining distance/ETA.
+    final liveDriverRoute = _isShowingDriverRoute ? _driverRouteResult : null;
     final distanceKm =
+        liveDriverRoute?.distanceLabel ??
         _routeResult?.distanceLabel ??
         _distanceLabel(widget.pickupPoint, widget.dropoffPoint);
+    final etaLabel = liveDriverRoute?.etaLabel ?? _routeResult?.etaLabel;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F2EE),
       body: Stack(
         children: [
           _bookingMap(),
@@ -115,10 +125,10 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
               top: false,
               child: Container(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surface,
                   borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-                  boxShadow: [
+                  boxShadow: const [
                     BoxShadow(
                       color: Color(0x22000000),
                       blurRadius: 12,
@@ -148,16 +158,16 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
                             children: [
                               Text(
                                 meta.title,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w900,
-                                  color: Color(0xFF202020),
+                                  color: theme.colorScheme.onSurface,
                                 ),
                               ),
                               Text(
                                 meta.subtitle,
-                                style: const TextStyle(
-                                  color: Color(0xFF686868),
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurfaceVariant,
                                   height: 1.3,
                                 ),
                               ),
@@ -181,36 +191,36 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
                             ),
                             style: OutlinedButton.styleFrom(
                               minimumSize: const Size(72, 42),
-                              side: const BorderSide(color: Color(0xFFD8CDE8)),
+                              side: BorderSide(color: theme.dividerColor),
                             ),
-                            child: const Text('Edit'),
+                            child: Text(copy.editCta),
                           ),
                           const SizedBox(width: 6),
                         ],
                         IconButton(
-                          onPressed: () => Navigator.of(context).pop(),
+                          onPressed: () => _exitBookingStatusScreen(context),
                           icon: const Icon(Icons.close_rounded),
                         ),
                       ],
                     ),
                     if (_driverProfile != null) ...[
                       const SizedBox(height: 12),
-                      _driverInfoCard(_driverProfile!),
+                      _driverInfoCard(context, _driverProfile!),
                     ],
                     const SizedBox(height: 10),
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: [
-                          _tag(_paymentMethod),
+                          _tag(context, _paymentMethod),
                           const SizedBox(width: 8),
-                          _tag(distanceKm),
-                          if (_routeResult != null) ...[
+                          _tag(context, distanceKm),
+                          if (etaLabel != null) ...[
                             const SizedBox(width: 8),
-                            _tag(_routeResult!.etaLabel),
+                            _tag(context, etaLabel),
                           ],
                           const SizedBox(width: 8),
-                          _tag(_fareLabel),
+                          _tag(context, _fareLabel),
                         ],
                       ),
                     ),
@@ -235,10 +245,10 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
                               : const Icon(Icons.directions_car_rounded),
                           label: Text(
                             _isLoadingDriverRoute
-                                ? 'Loading driver route...'
+                                ? copy.loadingDriverRouteLabel
                                 : (_wantsDriverRoute && _driverPoint == null)
-                                ? 'Waiting for driver location...'
-                                : 'Show Driver Location',
+                                ? copy.waitingForDriverLocationLabel
+                                : copy.showDriverLocationCta,
                           ),
                         ),
                       ),
@@ -253,7 +263,9 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
                             ? null
                             : _cancelBooking,
                         child: Text(
-                          _isCancelling ? 'Cancelling...' : 'Cancel Booking',
+                          _isCancelling
+                              ? copy.cancellingLabel
+                              : copy.cancelBookingCta,
                         ),
                       ),
                     ),
@@ -267,12 +279,12 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
                           bookingId: widget.bookingId,
                           currentUserRole: 'user',
                         ),
-                        child: const Text('Chat with Driver'),
+                        child: Text(copy.chatWithDriverTitle),
                       ),
                     ),
                     if (_status == UserBookingStatus.completed) ...[
                       const SizedBox(height: 10),
-                      _ratingCard(),
+                      _ratingCard(context),
                     ],
                   ],
                 ),
@@ -284,19 +296,34 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
     );
   }
 
+  void _exitBookingStatusScreen(BuildContext context) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushNamedAndRemoveUntil(
+        AppRouter.userDashboard,
+        (route) => false,
+      );
+    }
+  }
+
   Widget _topBar(BuildContext context) {
+    final theme = Theme.of(context);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
         child: Row(
           children: [
             IconButton(
-              onPressed: () => Navigator.of(context).pop(),
-              icon: const Icon(
+              onPressed: () => _exitBookingStatusScreen(context),
+              icon: Icon(
                 Icons.arrow_back_rounded,
-                color: Color(0xFF2D2D2D),
+                color: theme.colorScheme.onSurface,
               ),
-              style: IconButton.styleFrom(backgroundColor: Colors.white),
+              style: IconButton.styleFrom(
+                backgroundColor: theme.colorScheme.surface,
+              ),
             ),
           ],
         ),
@@ -353,45 +380,48 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
     );
   }
 
-  Widget _tag(String text) {
+  Widget _tag(BuildContext context, String text) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFF3F1ED),
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),
       ),
       child: Text(
         text,
-        style: const TextStyle(
-          color: Color(0xFF5A5A5A),
+        style: TextStyle(
+          color: theme.colorScheme.onSurfaceVariant,
           fontWeight: FontWeight.w700,
         ),
       ),
     );
   }
 
-  Widget _driverInfoCard(_DriverProfileSummary profile) {
+  Widget _driverInfoCard(BuildContext context, _DriverProfileSummary profile) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8F7F4),
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFE4DED4)),
+        border: Border.all(color: theme.dividerColor),
       ),
       child: Row(
         children: [
           CircleAvatar(
             radius: 30,
-            backgroundColor: const Color(0xFFEAE3D8),
+            backgroundColor: theme.colorScheme.surface,
             backgroundImage: profile.imageUrl.startsWith('http')
                 ? NetworkImage(profile.imageUrl)
                 : null,
             child: profile.imageUrl.startsWith('http')
                 ? null
-                : const Icon(
+                : Icon(
                     Icons.person,
-                    color: Color(0xFF7A6D5E),
+                    color: theme.colorScheme.onSurfaceVariant,
                     size: 30,
                   ),
           ),
@@ -402,27 +432,27 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
               children: [
                 Text(
                   profile.name,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
-                    color: Color(0xFF222222),
+                    color: theme.colorScheme.onSurface,
                   ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   profile.vehicleModel.isEmpty
-                      ? 'Vehicle: -'
+                      ? copy.vehicleUnknownLabel
                       : profile.vehicleModel,
-                  style: const TextStyle(
-                    color: Color(0xFF5E5E5E),
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
                     fontSize: 14,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Plate: ${profile.plateNumber}',
-                  style: const TextStyle(
-                    color: Color(0xFF5E5E5E),
+                  '${copy.platePrefixLabel} ${profile.plateNumber}',
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurfaceVariant,
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                   ),
@@ -449,12 +479,13 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
   }
 
   Future<void> _callDriver(String phone) async {
+    final copy = AppCopy.of(context);
     final uri = Uri.parse('tel:$phone');
     final launched = await launchUrl(uri);
     if (!launched && mounted) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Unable to start a call.')));
+      ).showSnackBar(SnackBar(content: Text(copy.unableToStartCallError)));
     }
   }
 
@@ -538,12 +569,13 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
   }
 
   Future<void> _showDriverLocation() async {
+    final copy = AppCopy.of(context);
     setState(() {
       _wantsDriverRoute = true;
     });
     if (_driverPoint == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Waiting for driver live location...')),
+        SnackBar(content: Text(copy.waitingForDriverLiveLocationError)),
       );
       return;
     }
@@ -570,6 +602,7 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
     if (!mounted) return;
     setState(() {
       _driverRoutePoints = result.points;
+      _driverRouteResult = result;
       _isLoadingDriverRoute = false;
     });
     if (moveMap) {
@@ -698,55 +731,61 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
     return '${(meter / 1000).toStringAsFixed(1)} km';
   }
 
-  _StatusMeta _statusMeta(UserBookingStatus status) {
+  _StatusMeta _statusMeta(UserBookingStatus status, AppCopy copy) {
     switch (status) {
       case UserBookingStatus.pending:
-        return const _StatusMeta(
-          title: 'Booking pending...',
-          subtitle: 'Waiting for driver to accept',
+        const badgeFg = Color(0xFFE09D00);
+        return _StatusMeta(
+          title: copy.bookingPendingTitle,
+          subtitle: copy.bookingPendingSubtitle,
           icon: Icons.access_time_rounded,
-          badgeBg: Color(0xFFFFF4D8),
-          badgeFg: Color(0xFFE09D00),
+          badgeBg: badgeFg.withValues(alpha: 0.16),
+          badgeFg: badgeFg,
         );
       case UserBookingStatus.accepted:
-        return const _StatusMeta(
-          title: 'Driver accepted',
-          subtitle: 'Driver is heading to your pickup point',
+        const badgeFg = Color(0xFF2E7D32);
+        return _StatusMeta(
+          title: copy.driverAcceptedTitle,
+          subtitle: copy.driverAcceptedSubtitle,
           icon: Icons.check_circle_rounded,
-          badgeBg: Color(0xFFE7F8EC),
-          badgeFg: Color(0xFF2E7D32),
+          badgeBg: badgeFg.withValues(alpha: 0.14),
+          badgeFg: badgeFg,
         );
       case UserBookingStatus.arrivedPickup:
-        return const _StatusMeta(
-          title: 'Driver arrived',
-          subtitle: 'Your driver has arrived at pickup',
+        const badgeFg = Color(0xFF2D64E3);
+        return _StatusMeta(
+          title: copy.driverArrivedTitle,
+          subtitle: copy.driverArrivedSubtitle,
           icon: Icons.directions_car_filled_rounded,
-          badgeBg: Color(0xFFEAF1FF),
-          badgeFg: Color(0xFF2D64E3),
+          badgeBg: badgeFg.withValues(alpha: 0.14),
+          badgeFg: badgeFg,
         );
       case UserBookingStatus.inProgress:
-        return const _StatusMeta(
-          title: 'Ride in progress',
-          subtitle: 'Enjoy your trip',
+        const badgeFg = Color(0xFF7A3FD0);
+        return _StatusMeta(
+          title: copy.rideInProgressTitle,
+          subtitle: copy.rideInProgressSubtitle,
           icon: Icons.route_rounded,
-          badgeBg: Color(0xFFF0E8FF),
-          badgeFg: Color(0xFF7A3FD0),
+          badgeBg: badgeFg.withValues(alpha: 0.14),
+          badgeFg: badgeFg,
         );
       case UserBookingStatus.completed:
-        return const _StatusMeta(
-          title: 'Ride completed',
-          subtitle: 'Thank you for riding with PerdaRide',
+        const badgeFg = Color(0xFF2E7D32);
+        return _StatusMeta(
+          title: copy.rideCompletedTitle,
+          subtitle: copy.rideCompletedSubtitle,
           icon: Icons.verified_rounded,
-          badgeBg: Color(0xFFE7F8EC),
-          badgeFg: Color(0xFF2E7D32),
+          badgeBg: badgeFg.withValues(alpha: 0.14),
+          badgeFg: badgeFg,
         );
       case UserBookingStatus.cancelled:
-        return const _StatusMeta(
-          title: 'Booking cancelled',
-          subtitle: 'You can create a new booking anytime',
+        const badgeFg = Color(0xFFD84315);
+        return _StatusMeta(
+          title: copy.bookingCancelledTitle,
+          subtitle: copy.bookingCancelledSubtitle,
           icon: Icons.cancel_rounded,
-          badgeBg: Color(0xFFFFECE7),
-          badgeFg: Color(0xFFD84315),
+          badgeBg: badgeFg.withValues(alpha: 0.14),
+          badgeFg: badgeFg,
         );
     }
   }
@@ -770,23 +809,26 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
     }
   }
 
-  Widget _ratingCard() {
+  Widget _ratingCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
+    const badgeAccent = Color(0xFFF6A623);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFFAF2),
+        color: badgeAccent.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFF0DFC6)),
+        border: Border.all(color: badgeAccent.withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Rate your driver',
+          Text(
+            copy.rateYourDriverLabel,
             style: TextStyle(
               fontWeight: FontWeight.w800,
-              color: Color(0xFF2D2D2D),
+              color: theme.colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: 8),
@@ -805,7 +847,7 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
                   index < _selectedRating
                       ? Icons.star_rounded
                       : Icons.star_border_rounded,
-                  color: const Color(0xFFF6A623),
+                  color: badgeAccent,
                 ),
               ),
             ),
@@ -816,9 +858,9 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
             enabled: !_hasSubmittedRating,
             minLines: 2,
             maxLines: 3,
-            decoration: const InputDecoration(
-              hintText: 'Write a comment (optional)',
-              border: OutlineInputBorder(),
+            decoration: InputDecoration(
+              hintText: copy.writeCommentHint,
+              border: const OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: 6),
@@ -830,10 +872,10 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
                   : _submitRating,
               child: Text(
                 _hasSubmittedRating
-                    ? 'Rating submitted'
+                    ? copy.ratingSubmittedLabel
                     : _isSubmittingRating
-                    ? 'Submitting...'
-                    : 'Submit Rating',
+                    ? copy.bookingSubmittingCta
+                    : copy.submitRatingCta,
               ),
             ),
           ),
@@ -846,7 +888,7 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
                   AppRouter.userDashboard,
                   (route) => false,
                 ),
-                child: const Text('Back to Home'),
+                child: Text(copy.backToHomeCta),
               ),
             ),
           ],
@@ -856,11 +898,12 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
   }
 
   Future<void> _submitRating() async {
+    final copy = AppCopy.of(context);
     final driverId = _driverId?.trim() ?? '';
     final comment = _ratingCommentController.text.trim();
     if (driverId.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Driver not found for rating.')),
+        SnackBar(content: Text(copy.driverNotFoundForRatingError)),
       );
       return;
     }
@@ -889,13 +932,13 @@ class _UserBookingStatusScreenState extends State<UserBookingStatusScreen> {
         _hasSubmittedRating = true;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Thanks! Rating submitted.')),
+        SnackBar(content: Text(copy.thanksRatingSubmittedMessage)),
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to submit rating: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${copy.failedToSubmitRatingError} $e')),
+      );
     } finally {
       if (mounted) {
         setState(() {

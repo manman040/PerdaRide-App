@@ -9,6 +9,7 @@ import '../../../app/app_router.dart';
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
+import '../../../core/firebase/account_status.dart';
 import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/perda_map_view.dart';
 import '../../booking/data/booking_repository.dart';
@@ -35,7 +36,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   double _todayEarnings = 0;
   bool _isMenuOpen = false;
   bool _isProfileLoading = true;
-  String _driverName = 'PerdaRide Driver';
+  String _driverName = 'Urban Drive Driver';
   String _driverEmail = 'driver@perdaride.app';
   String _driverPackageTier = 'Package A';
   StreamSubscription<DatabaseEvent>? _bookingsSubscription;
@@ -45,8 +46,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   bool _isUpdatingOnlineStatus = false;
   int _pendingJobCount = 0;
   int _lastLocationPublishAt = 0;
+  bool _locationRetryAvailable = false;
 
-  String get _statusText => _isDriverOnline ? 'Waiting for jobs' : 'Offline';
+  String _statusText(AppCopy copy) =>
+      _isDriverOnline ? copy.driverWaitingForJobsStatus : copy.driverOfflineStatus;
 
   @override
   void initState() {
@@ -55,7 +58,19 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     _loadDriverAvailability();
     _listenTodayStats();
     _listenPendingJobs();
-    _detectDriverLocation();
+    // _detectDriverLocation reads AppCopy.of(context), which registers an
+    // InheritedWidget dependency -- calling that synchronously from initState
+    // (this method hadn't returned yet) throws
+    // "dependOnInheritedWidgetOfExactType<AppSettingsScope>() ... called
+    // before initState() completed", an *uncaught* exception since it happens
+    // before the function's own try block, silently killing location
+    // detection for the rest of the screen's life with no error shown to the
+    // user. Deferring to post-frame (same pattern already used in
+    // UserDashboardScreen/DriverActiveRideScreen) runs it after initState has
+    // fully returned.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _detectDriverLocation();
+    });
   }
 
   @override
@@ -79,6 +94,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     try {
       final snapshot = await _databaseRepository.getData('drivers/${user.uid}');
       final value = snapshot.value;
+
+      if (!mounted) return;
+      if (AccountStatus.isDisabled(value)) {
+        await _forceSignOut();
+        return;
+      }
 
       String name = _driverName;
       String email = user.email ?? _driverEmail;
@@ -131,6 +152,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Future<void> _updateDriverAvailability(bool isOnline) async {
+    final copy = AppCopy.of(context);
     final user = _authRepository.currentUser;
     if (user == null) return;
     setState(() {
@@ -148,7 +170,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update availability: $e')),
+        SnackBar(content: Text('${copy.updateAvailabilityFailedError}: $e')),
       );
     } finally {
       if (mounted) {
@@ -163,38 +185,52 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   Widget build(BuildContext context) {
     final copy = AppCopy.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F2EE),
       body: Stack(
         children: [
-          _driverPoint == null ? _locationLoadingView() : _driverMap(),
+          _driverPoint == null ? _locationLoadingView(context, copy) : _driverMap(),
           _topBar(context, copy),
-          _bottomPanel(context),
+          _bottomPanel(context, copy),
           _buildSideMenu(context, copy),
         ],
       ),
     );
   }
 
-  Widget _locationLoadingView() {
+  Widget _locationLoadingView(BuildContext context, AppCopy copy) {
+    final theme = Theme.of(context);
     return Container(
-      color: const Color(0xFFF5F2EE),
+      color: theme.scaffoldBackgroundColor,
       alignment: Alignment.center,
-      child: const Column(
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            width: 34,
-            height: 34,
-            child: CircularProgressIndicator(strokeWidth: 3),
-          ),
-          SizedBox(height: 14),
+          if (_locationRetryAvailable)
+            Icon(
+              Icons.location_disabled_rounded,
+              color: theme.colorScheme.onSurfaceVariant,
+              size: 32,
+            )
+          else
+            const SizedBox(
+              width: 34,
+              height: 34,
+              child: CircularProgressIndicator(strokeWidth: 3),
+            ),
+          const SizedBox(height: 14),
           Text(
-            'Detecting current location...',
+            copy.detectingLocationMessage,
             style: TextStyle(
-              color: Color(0xFF454545),
+              color: theme.colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w700,
             ),
           ),
+          if (_locationRetryAvailable) ...[
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: _detectDriverLocation,
+              child: Text(copy.retryLocationCta),
+            ),
+          ],
         ],
       ),
     );
@@ -218,12 +254,14 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Widget _topBar(BuildContext context, AppCopy copy) {
+    final theme = Theme.of(context);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
         child: Row(
           children: [
             _iconButton(
+              context: context,
               icon: Icons.menu_rounded,
               onTap: () {
                 setState(() {
@@ -237,7 +275,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 height: 44,
                 padding: const EdgeInsets.symmetric(horizontal: 14),
                 decoration: BoxDecoration(
-                  color: Colors.white,
+                  color: theme.colorScheme.surface,
                   borderRadius: BorderRadius.circular(22),
                   boxShadow: const [
                     BoxShadow(
@@ -251,8 +289,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     copy.driverDashboardLabel,
-                    style: const TextStyle(
-                      color: Color(0xFF222222),
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -265,7 +303,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     );
   }
 
-  Widget _bottomPanel(BuildContext context) {
+  Widget _bottomPanel(BuildContext context, AppCopy copy) {
+    final theme = Theme.of(context);
     return Align(
       alignment: Alignment.bottomCenter,
       child: Container(
@@ -273,10 +312,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           maxHeight: MediaQuery.of(context).size.height * 0.66,
         ),
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-        decoration: const BoxDecoration(
-          color: Color(0xFFFFFFFF),
-          borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-          boxShadow: [
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+          boxShadow: const [
             BoxShadow(
               color: Color(0x1A000000),
               blurRadius: 12,
@@ -298,7 +337,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                       height: 10,
                       decoration: BoxDecoration(
                         color: !_isDriverOnline
-                            ? const Color(0xFF9E9E9E)
+                            ? theme.colorScheme.onSurfaceVariant
                             : const Color(0xFF3BB273),
                         borderRadius: BorderRadius.circular(99),
                       ),
@@ -306,9 +345,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _statusText,
-                        style: const TextStyle(
-                          color: Color(0xFF454545),
+                        _statusText(copy),
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurfaceVariant,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -328,13 +367,15 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                 Row(
                   children: [
                     _metricCard(
-                      title: 'Trips',
+                      context: context,
+                      title: copy.tripsMetricLabel,
                       value: '$_todayTrips',
                       icon: Icons.local_taxi_rounded,
                     ),
                     const SizedBox(width: 10),
                     _metricCard(
-                      title: 'Earnings',
+                      context: context,
+                      title: copy.earningsMetricLabel,
                       value: 'RM ${_todayEarnings.toStringAsFixed(2)}',
                       icon: Icons.payments_outlined,
                     ),
@@ -397,8 +438,8 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                   },
                             child: Text(
                               _isDriverOnline
-                                  ? 'Available Jobs'
-                                  : 'Go Online to Get Jobs',
+                                  ? copy.availableJobsCta
+                                  : copy.goOnlineForJobsCta,
                             ),
                           ),
                           if (_isDriverOnline && _pendingJobCount > 0)
@@ -443,17 +484,21 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Widget _metricCard({
+    required BuildContext context,
     required String title,
     required String value,
     required IconData icon,
   }) {
+    final theme = Theme.of(context);
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFFFFF8F0),
+          color: theme.colorScheme.primary.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFF7DFC3)),
+          border: Border.all(
+            color: theme.colorScheme.primary.withValues(alpha: 0.35),
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -462,18 +507,18 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
             const SizedBox(height: 8),
             Text(
               title,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
-                color: Color(0xFF7B6A58),
+                color: theme.colorScheme.onSurfaceVariant,
                 fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 2),
             Text(
               value,
-              style: const TextStyle(
+              style: TextStyle(
                 fontWeight: FontWeight.w800,
-                color: Color(0xFF2A2A2A),
+                color: theme.colorScheme.onSurface,
               ),
             ),
           ],
@@ -482,7 +527,12 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     );
   }
 
-  Widget _iconButton({required IconData icon, required VoidCallback onTap}) {
+  Widget _iconButton({
+    required BuildContext context,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -492,7 +542,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(16),
             boxShadow: const [
               BoxShadow(
@@ -509,6 +559,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Widget _buildSideMenu(BuildContext context, AppCopy copy) {
+    final theme = Theme.of(context);
     return IgnorePointer(
       ignoring: !_isMenuOpen,
       child: AnimatedOpacity(
@@ -534,7 +585,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   margin: const EdgeInsets.only(top: 8, bottom: 8, left: 8),
                   padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: theme.colorScheme.surface,
                     borderRadius: BorderRadius.circular(22),
                     boxShadow: const [
                       BoxShadow(
@@ -550,10 +601,11 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                           children: [
                             Row(
                               children: [
-                                const CircleAvatar(
+                                CircleAvatar(
                                   radius: 26,
-                                  backgroundColor: Color(0xFFFFE7CB),
-                                  child: Icon(
+                                  backgroundColor: theme.colorScheme.primary
+                                      .withValues(alpha: 0.16),
+                                  child: const Icon(
                                     Icons.person,
                                     color: Color(0xFFF68B1F),
                                     size: 30,
@@ -567,10 +619,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                     children: [
                                       Text(
                                         _isProfileLoading
-                                            ? 'Loading profile...'
+                                            ? copy.loadingProfileMessage
                                             : _driverName,
-                                        style: const TextStyle(
-                                          color: Color(0xFF1F1F1F),
+                                        style: TextStyle(
+                                          color: theme.colorScheme.onSurface,
                                           fontWeight: FontWeight.w800,
                                           fontSize: 17,
                                         ),
@@ -578,8 +630,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                                       const SizedBox(height: 2),
                                       Text(
                                         _driverEmail,
-                                        style: const TextStyle(
-                                          color: Color(0xFF757575),
+                                        style: TextStyle(
+                                          color: theme
+                                              .colorScheme
+                                              .onSurfaceVariant,
                                           fontSize: 12,
                                         ),
                                       ),
@@ -604,9 +658,10 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                               icon: Icons.notifications_none_rounded,
                               label: copy.notificationsMenu,
                               onTap: () {
-                                Navigator.of(
-                                  context,
-                                ).pushNamed(AppRouter.notifications);
+                                Navigator.of(context).pushNamed(
+                                  AppRouter.notifications,
+                                  arguments: {'isDriver': true},
+                                );
                               },
                             ),
                             _driverMenuItem(
@@ -640,7 +695,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                               },
                             ),
                             const Spacer(),
-                            const Divider(color: Color(0x14000000)),
+                            Divider(color: theme.dividerColor),
                             _driverMenuItem(
                               context: context,
                               icon: Icons.logout_rounded,
@@ -667,6 +722,7 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     required VoidCallback onTap,
     bool danger = false,
   }) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
@@ -691,14 +747,18 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
                   size: 22,
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: danger
-                        ? const Color(0xFFD94A35)
-                        : const Color(0xFF212121),
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.3,
+                Expanded(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: danger
+                          ? const Color(0xFFD94A35)
+                          : theme.colorScheme.onSurface,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.3,
+                    ),
                   ),
                 ),
               ],
@@ -726,15 +786,22 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
   }
 
   Future<void> _detectDriverLocation() async {
+    final copy = AppCopy.of(context);
+    if (mounted) {
+      setState(() {
+        _locationRetryAvailable = false;
+      });
+    }
     try {
       final serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please enable location service on your phone.'),
+          SnackBar(
+            content: Text(copy.enableLocationServiceMessage),
           ),
         );
+        setState(() => _locationRetryAvailable = true);
         return;
       }
 
@@ -747,17 +814,36 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
           permission == LocationPermission.deniedForever) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Location permission is required.')),
+          SnackBar(content: Text(copy.locationPermissionRequiredMessage)),
         );
+        setState(() => _locationRetryAvailable = true);
         return;
       }
 
-      final current = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      _updateDriverLocation(current, moveMap: true);
+      // A fresh GPS fix can take a while, or -- e.g. a stale/idle emulator
+      // GPS provider, or a phone with a weak signal indoors -- never arrive
+      // at all. Without a time limit this hangs forever with no way for the
+      // driver to recover short of an app restart, so fall back to the last
+      // cached fix (near-instant) rather than leaving the map stuck loading;
+      // the live position stream below still brings it current once a real
+      // fix comes in.
+      Position? current;
+      try {
+        current = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 10),
+          ),
+        );
+      } on TimeoutException {
+        current = await Geolocator.getLastKnownPosition();
+      }
+
+      if (current != null) {
+        _updateDriverLocation(current, moveMap: true);
+      } else if (mounted) {
+        setState(() => _locationRetryAvailable = true);
+      }
 
       await _locationSubscription?.cancel();
       _locationSubscription =
@@ -772,8 +858,9 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to detect your location now.')),
+        SnackBar(content: Text(copy.unableDetectLocationMessage)),
       );
+      setState(() => _locationRetryAvailable = true);
     }
   }
 
@@ -923,6 +1010,20 @@ class _DriverDashboardScreenState extends State<DriverDashboardScreen> {
     final text = (rawFareLabel ?? '').toString();
     final cleaned = text.replaceAll('RM', '').replaceAll(' ', '').trim();
     return double.tryParse(cleaned) ?? 0.0;
+  }
+
+  /// The admin disabled this account: sign out and explain on the login screen.
+  Future<void> _forceSignOut() async {
+    final notice = AppCopy.of(context).accountDisabledError;
+    try {
+      await _authRepository.signOut();
+    } catch (_) {}
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      AppRouter.login,
+      (route) => false,
+      arguments: <String, dynamic>{'notice': notice},
+    );
   }
 
   Future<void> _signOut() async {

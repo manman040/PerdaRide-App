@@ -6,13 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import '../../../app/app_router.dart';
 import '../../../core/firebase/firebase_auth_repository.dart';
 import '../../../core/firebase/firebase_database_repository.dart';
 import '../../../core/firebase/perdaride_firebase.dart';
 import '../../../core/notifications/ride_notification_service.dart';
 import '../../../core/services/mapbox_directions_service.dart';
+import '../../../core/settings/app_copy.dart';
 import '../../../core/widgets/booking_chat_sheet.dart';
 import '../../../core/widgets/perda_map_view.dart';
 import '../../booking/data/booking_repository.dart';
@@ -63,7 +64,6 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
   LatLng? _driverPoint;
   double _driverBearing = 0;
   DriverRideStage _rideStage = DriverRideStage.accepted;
-  String _statusText = 'Heading to passenger pickup';
   late String _distanceText = widget.initialDistanceLabel;
   MapboxRouteResult? _routeResult;
   bool _isVoiceNavigationOn = false;
@@ -71,14 +71,46 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
   String? _lastSpokenInstruction;
   PerdaMapController? _navMapController;
   StreamSubscription<DatabaseEvent>? _driverLocationSubscription;
+  StreamSubscription<Position>? _liveLocationSubscription;
+  StreamSubscription<DatabaseEvent>? _bookingStatusSubscription;
+  int _lastLocationPublishAt = 0;
+  int _lastCameraAnimateAt = 0;
+
+  bool _ttsReady = false;
+  // Set right before this screen writes 'cancelled' itself (driver-initiated
+  // cancel), so the booking listener below doesn't mistake that echo for a
+  // rider-initiated cancellation and pop up a redundant/contradictory dialog.
+  bool _cancelledLocally = false;
+  bool _isHandlingRideEnd = false;
 
   @override
   void initState() {
     super.initState();
-    _tts.setLanguage('en-US');
-    _tts.setSpeechRate(0.45);
     _listenDriverLocation();
-    _detectInitialLocation();
+    _listenBookingStatus();
+    // Deferred to post-frame so the initial GPS fix (a platform channel
+    // round-trip to a slow-to-respond system service) doesn't compete with
+    // the map's own first-frame setup, which is when this screen is most
+    // prone to input-dispatch contention right after a cold app launch.
+    //
+    // TTS is intentionally *not* initialized here: `TextToSpeech.setLanguage`
+    // makes Android synchronously enumerate and deserialize every installed
+    // voice on the calling thread (confirmed via a main-thread stack trace
+    // caught mid-freeze, stuck in `Voice.<init>` via `ObjectInputStream`).
+    // That's slow regardless of timing, so it's deferred further, to
+    // _ensureTtsReady(), which only runs the first time voice navigation is
+    // actually turned on -- most rides never need it at all.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _detectInitialLocation();
+    });
+  }
+
+  Future<void> _ensureTtsReady() async {
+    if (_ttsReady) return;
+    _ttsReady = true;
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(0.45);
   }
 
   /// Seeds [_driverPoint] with a direct GPS fix instead of waiting on the
@@ -100,14 +132,25 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
         return;
       }
 
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      if (!mounted || _driverPoint != null) return;
+      // See the matching comment in DriverDashboardScreen._detectDriverLocation:
+      // a fresh GPS fix can hang indefinitely (stale emulator provider, weak
+      // signal, etc.), so fall back to the last cached fix instead of leaving
+      // this screen without a location. _startNavigation() already retries
+      // this call if it's still null when the driver taps Navigate.
+      Position? position;
+      try {
+        position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 10),
+          ),
+        );
+      } on TimeoutException {
+        position = await Geolocator.getLastKnownPosition();
+      }
+      if (position == null || !mounted || _driverPoint != null) return;
       setState(() {
-        _driverPoint = LatLng(position.latitude, position.longitude);
+        _driverPoint = LatLng(position!.latitude, position.longitude);
       });
       _refreshNavigationRoute();
     } catch (_) {}
@@ -116,8 +159,55 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
   @override
   void dispose() {
     _driverLocationSubscription?.cancel();
+    _liveLocationSubscription?.cancel();
+    _bookingStatusSubscription?.cancel();
     _tts.stop();
     super.dispose();
+  }
+
+  /// Mirrors the passenger side's own booking listener -- without this, a
+  /// rider cancelling mid-ride (in [UserBookingStatusScreen]) writes
+  /// 'cancelled' to Firebase but this screen, which only knew the status at
+  /// the moment it opened, keeps showing ACCEPTED/ARRIVED/IN PROGRESS with
+  /// every action button still live.
+  void _listenBookingStatus() {
+    _bookingStatusSubscription = _bookingRepository
+        .watchBooking(widget.bookingId)
+        .listen((event) {
+          final value = event.snapshot.value;
+          if (value is! Map) return;
+          final status = (value['status'] ?? '').toString();
+          if (status == 'cancelled' && !_cancelledLocally) {
+            _handleRideCancelledByRider();
+          }
+        });
+  }
+
+  Future<void> _handleRideCancelledByRider() async {
+    if (_isHandlingRideEnd) return;
+    _isHandlingRideEnd = true;
+    _tts.stop();
+    if (_isVoiceNavigationOn) {
+      _stopLiveLocationBroadcast();
+    }
+    if (!mounted) return;
+    final copy = AppCopy.of(context);
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(copy.rideCancelledByPassengerTitle),
+        content: Text(copy.rideCancelledByPassengerMessage),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(copy.okCta),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    _exitRideScreen();
   }
 
   void _listenDriverLocation() {
@@ -134,17 +224,22 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
           if (lat == null || lng == null) return;
 
           final point = LatLng(lat, lng);
-          final previous = _driverPoint;
-          if (!mounted) return;
-          setState(() {
-            if (previous != null && previous != point) {
-              _driverBearing = const Distance().bearing(previous, point);
-            }
-            _driverPoint = point;
-          });
 
-          if (_isVoiceNavigationOn) {
-            unawaited(_navMapController?.animateCamera(point, 17.5));
+          // While actively navigating, _startLiveLocationBroadcast's direct GPS
+          // stream already drives _driverPoint/the camera with fresher data --
+          // this Firebase echo is throttled to a 5s publish cadence, so letting
+          // it also overwrite _driverPoint here would periodically snap the
+          // camera back to a stale position. Pre-navigation (e.g. the ride-card
+          // preview map), this is still the only source of driver position.
+          if (!_isVoiceNavigationOn) {
+            final previous = _driverPoint;
+            if (!mounted) return;
+            setState(() {
+              if (previous != null && previous != point) {
+                _driverBearing = const Distance().bearing(previous, point);
+              }
+              _driverPoint = point;
+            });
           }
 
           if (_rideStage == DriverRideStage.accepted ||
@@ -169,16 +264,29 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
       ? widget.dropoffLabel
       : widget.pickupLabel;
 
+  String _statusTextFor(AppCopy copy) {
+    switch (_rideStage) {
+      case DriverRideStage.idle:
+      case DriverRideStage.accepted:
+        return copy.headingToPickupStatus;
+      case DriverRideStage.arrivedPickup:
+        return copy.driverArrivedPickupStatus;
+      case DriverRideStage.inProgress:
+        return copy.rideInProgressStatus;
+      case DriverRideStage.completed:
+        return copy.rideCompletedStatus;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       body: _isVoiceNavigationOn
-          ? _navigationView()
+          ? _navigationView(context)
           : SafeArea(
               child: Column(
                 children: [
-                  SizedBox(height: 220, child: _pickupPreviewMap()),
+                  SizedBox(height: 220, child: _pickupPreviewMap(context)),
                   Expanded(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
@@ -192,26 +300,28 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
   }
 
   Widget _rideProgressCard(BuildContext context) {
+    final theme = Theme.of(context);
+    final copy = AppCopy.of(context);
     final stageMeta = switch (_rideStage) {
       DriverRideStage.accepted => (
-        label: 'ACCEPTED',
+        label: copy.acceptedStageLabel,
         color: const Color(0xFF2E90E5),
-        primaryAction: 'Arrived',
+        primaryAction: copy.arrivedActionCta,
       ),
       DriverRideStage.arrivedPickup => (
-        label: 'ARRIVED PICKUP',
+        label: copy.arrivedPickupStageLabel,
         color: const Color(0xFFF09A1A),
-        primaryAction: 'Start Ride',
+        primaryAction: copy.startRideCta,
       ),
       DriverRideStage.inProgress => (
-        label: 'IN PROGRESS',
+        label: copy.inProgressStageLabel,
         color: const Color(0xFF8E44AD),
-        primaryAction: 'Complete Ride',
+        primaryAction: copy.completeRideCta,
       ),
       DriverRideStage.completed => (
-        label: 'COMPLETED',
+        label: copy.completedStageLabel,
         color: const Color(0xFF2E7D32),
-        primaryAction: 'Done',
+        primaryAction: copy.doneCta,
       ),
       DriverRideStage.idle => (
         label: '',
@@ -225,9 +335,9 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          _statusText,
-          style: const TextStyle(
-            color: Color(0xFF454545),
+          _statusTextFor(copy),
+          style: TextStyle(
+            color: theme.colorScheme.onSurfaceVariant,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -235,9 +345,9 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFFFAFAFA),
+            color: theme.colorScheme.surface,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE7DED3)),
+            border: Border.all(color: theme.dividerColor),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -264,12 +374,14 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
               ),
               const SizedBox(height: 12),
               _rideAddress(
+                context: context,
                 icon: Icons.trip_origin_rounded,
                 color: const Color(0xFF2E7D32),
                 value: widget.pickupLabel,
               ),
               const SizedBox(height: 8),
               _rideAddress(
+                context: context,
                 icon: Icons.place_rounded,
                 color: const Color(0xFFD84315),
                 value: widget.dropoffLabel,
@@ -282,7 +394,7 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
                   vertical: 10,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEAF7ED),
+                  color: const Color(0xFF2E7D32).withValues(alpha: 0.14),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -305,8 +417,8 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
                     icon: const Icon(Icons.navigation_rounded),
                     label: Text(
                       _rideStage == DriverRideStage.inProgress
-                          ? 'Navigate to Drop-off'
-                          : 'Navigate to Passenger',
+                          ? copy.navigateToDropoffCta
+                          : copy.navigateToPassengerCta,
                     ),
                   ),
                 ),
@@ -317,21 +429,18 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
                 child: ElevatedButton(
                   onPressed: () async {
                     if (_rideStage == DriverRideStage.completed) {
-                      Navigator.of(context).pop();
+                      _exitRideScreen();
                       return;
                     }
 
                     setState(() {
                       if (_rideStage == DriverRideStage.accepted) {
                         _rideStage = DriverRideStage.arrivedPickup;
-                        _statusText = 'Driver arrived at pickup';
                       } else if (_rideStage ==
                           DriverRideStage.arrivedPickup) {
                         _rideStage = DriverRideStage.inProgress;
-                        _statusText = 'Ride in progress';
                       } else if (_rideStage == DriverRideStage.inProgress) {
                         _rideStage = DriverRideStage.completed;
-                        _statusText = 'Ride completed';
                       }
                     });
                     if (_rideStage == DriverRideStage.inProgress) {
@@ -391,7 +500,7 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
                   width: double.infinity,
                   child: OutlinedButton(
                     onPressed: _cancelRide,
-                    child: const Text('Cancel Ride'),
+                    child: Text(copy.cancelRideCta),
                   ),
                 ),
               const SizedBox(height: 8),
@@ -404,7 +513,7 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
                     bookingId: widget.bookingId,
                     currentUserRole: 'driver',
                   ),
-                  child: const Text('Chat with Passenger'),
+                  child: Text(copy.chatWithPassengerTitle),
                 ),
               ),
             ],
@@ -415,10 +524,12 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
   }
 
   Widget _rideAddress({
+    required BuildContext context,
     required IconData icon,
     required Color color,
     required String value,
   }) {
+    final theme = Theme.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -427,18 +538,18 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
         Expanded(
           child: Text(
             value,
-            style: const TextStyle(color: Color(0xFF3F3F3F), height: 1.3),
+            style: TextStyle(color: theme.colorScheme.onSurface, height: 1.3),
           ),
         ),
       ],
     );
   }
 
-  Widget _pickupPreviewMap() {
+  Widget _pickupPreviewMap(BuildContext context) {
     final driverPoint = _driverPoint;
     if (driverPoint == null) {
       return Container(
-        color: const Color(0xFFF5F2EE),
+        color: Theme.of(context).scaffoldBackgroundColor,
         alignment: Alignment.center,
         child: const SizedBox(
           width: 28,
@@ -473,21 +584,31 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
     );
   }
 
-  Widget _navigationView() {
+  Widget _navigationView(BuildContext context) {
     final driverPoint = _driverPoint;
     if (driverPoint == null) {
-      return const ColoredBox(
-        color: Colors.white,
-        child: Center(child: CircularProgressIndicator()),
+      return ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: const Center(child: CircularProgressIndicator()),
       );
     }
 
+    final copy = AppCopy.of(context);
     final destination = _navDestinationPoint;
     final route = _routeResult;
     final routePoints = route != null && route.points.length > 1
         ? route.points
         : [driverPoint, destination];
 
+    // Reverted to the original full-bleed Stack layout: wrapping the map in
+    // Expanded/Column (to keep buttons off it) made the platform view
+    // render solid black permanently -- a known Flutter platform-view
+    // sizing-timing issue, confirmed directly on-device. The overlay-touch
+    // problem (buttons on top of the map not receiving taps) is real but
+    // needs a different fix than restructuring this layout; see
+    // perda_map_view.dart's docstring for the current state of that
+    // investigation. Use the bottom sheet's "End Navigation" button, not
+    // the top-left back arrow, until that's resolved.
     return Stack(
       children: [
         PerdaMapView(
@@ -542,7 +663,14 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(12),
-            child: _instructionBanner(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _navBackButton(context),
+                const SizedBox(height: 10),
+                _instructionBanner(copy),
+              ],
+            ),
           ),
         ),
         Positioned(
@@ -550,18 +678,42 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
           bottom: 210,
           child: _recenterButton(),
         ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: SafeArea(top: false, child: _navigationBottomSheet()),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: SafeArea(top: false, child: _navigationBottomSheet(context, copy)),
         ),
       ],
     );
   }
 
-  Widget _instructionBanner() {
-    final steps = _routeResult?.steps ?? const <MapboxRouteStep>[];
+  Widget _navBackButton(BuildContext context) {
+    final theme = Theme.of(context);
+    return IconButton(
+      onPressed: _endNavigation,
+      icon: Icon(
+        Icons.arrow_back_rounded,
+        color: theme.colorScheme.onSurface,
+      ),
+      style: IconButton.styleFrom(
+        backgroundColor: theme.colorScheme.surface,
+      ),
+    );
+  }
+
+  Widget _instructionBanner(AppCopy copy) {
+    final routeResult = _routeResult;
+    final steps = routeResult?.steps ?? const <MapboxRouteStep>[];
     final step = steps.isEmpty ? null : steps.first;
     final afterNext = steps.length > 1 ? steps[1] : null;
+    // A non-null result with no steps means the route call fell back to a
+    // straight-line estimate (e.g. the directions request timed out) rather
+    // than still being in flight -- distinguish that from genuinely loading
+    // so the banner doesn't say "Finding your route..." forever.
+    final placeholderText = routeResult == null
+        ? copy.findingRouteMessage
+        : copy.directionsUnavailableMessage;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
@@ -577,6 +729,7 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
@@ -600,7 +753,7 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
                       ),
                     ),
                     Text(
-                      step?.instruction ?? 'Finding your route...',
+                      step?.instruction ?? placeholderText,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -624,9 +777,9 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
             const Divider(color: Colors.white24, height: 18),
             Row(
               children: [
-                const Text(
-                  'Then',
-                  style: TextStyle(
+                Text(
+                  copy.thenLabel,
+                  style: const TextStyle(
                     color: Colors.white70,
                     fontWeight: FontWeight.w600,
                   ),
@@ -714,11 +867,18 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
     );
   }
 
-  Widget _navigationBottomSheet() {
+  Widget _navigationBottomSheet(BuildContext context, AppCopy copy) {
+    final theme = Theme.of(context);
     final route = _routeResult;
+    // Malaysia has a fixed UTC+8 offset (no DST), computed explicitly here
+    // instead of relying on DateTime.now()'s local offset -- devices/
+    // emulators with their system timezone misconfigured (e.g. left on UTC)
+    // would otherwise show an arrival time hours off from the real one.
     final arrival = route == null
         ? null
-        : DateTime.now().add(Duration(seconds: route.durationSeconds.round()));
+        : DateTime.now().toUtc().add(
+            const Duration(hours: 8),
+          ).add(Duration(seconds: route.durationSeconds.round()));
     final arrivalLabel = arrival == null
         ? '--:--'
         : '${arrival.hour.toString().padLeft(2, '0')}:'
@@ -726,10 +886,10 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        boxShadow: [
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        boxShadow: const [
           BoxShadow(
             color: Color(0x22000000),
             blurRadius: 16,
@@ -742,64 +902,55 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'To $_navDestinationLabel',
+            '${copy.toDestinationLabel} $_navDestinationLabel',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF6B6B6B),
+            style: TextStyle(
+              color: theme.colorScheme.onSurfaceVariant,
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 6),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Text(
                 route?.etaLabel ?? '-- min',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 26,
                   fontWeight: FontWeight.w900,
-                  color: Color(0xFF202020),
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
               const SizedBox(width: 10),
               Text(
                 route?.distanceLabel ?? '-- km',
-                style: const TextStyle(
-                  color: Color(0xFF6B6B6B),
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(width: 10),
               Text(
-                'arrive ~$arrivalLabel',
-                style: const TextStyle(
-                  color: Color(0xFF6B6B6B),
+                '${copy.arriveAtLabel} ~$arrivalLabel',
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD32F2F),
-                    foregroundColor: Colors.white,
-                  ),
-                  onPressed: _endNavigation,
-                  child: const Text('End Navigation'),
-                ),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD32F2F),
+                foregroundColor: Colors.white,
               ),
-              const SizedBox(width: 10),
-              OutlinedButton(
-                onPressed: _openExternalNavigation,
-                child: const Text('Open Maps'),
-              ),
-            ],
+              onPressed: _endNavigation,
+              child: Text(copy.endNavigationCta),
+            ),
           ),
         ],
       ),
@@ -807,6 +958,8 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
   }
 
   Future<void> _cancelRide() async {
+    _cancelledLocally = true;
+    _isHandlingRideEnd = true;
     await _bookingRepository.updateBookingStatus(
       bookingId: widget.bookingId,
       status: 'cancelled',
@@ -818,7 +971,19 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
       ),
     );
     if (!mounted) return;
-    Navigator.of(context).pop();
+    _exitRideScreen();
+  }
+
+  void _exitRideScreen() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushNamedAndRemoveUntil(
+        AppRouter.driverDashboard,
+        (route) => false,
+      );
+    }
   }
 
   Future<void> _notifyRider({
@@ -892,9 +1057,18 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
   }
 
   Future<void> _startNavigation() async {
+    final copy = AppCopy.of(context);
     if (_driverPoint == null) {
+      // The post-frame GPS fix may still be in flight (e.g. tapping this
+      // right after the screen opens) -- try once more inline instead of
+      // giving up, since bailing out here left the screen stuck showing
+      // the ride card with no way to reach the navigation view.
+      await _detectInitialLocation();
+    }
+    if (_driverPoint == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Waiting for current location.')),
+        SnackBar(content: Text(copy.waitingForLocationMessage)),
       );
       return;
     }
@@ -902,6 +1076,8 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
     setState(() {
       _isVoiceNavigationOn = true;
     });
+    unawaited(_ensureTtsReady());
+    _startLiveLocationBroadcast();
     await _refreshNavigationRoute();
   }
 
@@ -911,33 +1087,80 @@ class _DriverActiveRideScreenState extends State<DriverActiveRideScreen> {
     });
     _lastSpokenInstruction = null;
     _tts.stop();
+    _stopLiveLocationBroadcast();
   }
 
-  Future<void> _openExternalNavigation() async {
-    final destination = _navDestinationPoint;
-
-    final nativeUri = Uri.parse(
-      'google.navigation:q=${destination.latitude},${destination.longitude}&mode=d',
-    );
-    final launchedNative = await launchUrl(
-      nativeUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (launchedNative) return;
-
-    final webUri = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1'
-      '&destination=${destination.latitude},${destination.longitude}'
-      '&travelmode=driving',
-    );
-    final launchedWeb = await launchUrl(
-      webUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (!launchedWeb && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to open navigation.')),
-      );
+  /// Streams the driver's GPS to `driver_locations/{uid}` for as long as
+  /// navigation is on, so the passenger's "Show Driver Location" always has
+  /// a live feed to read -- independent of whether [DriverDashboardScreen]
+  /// is still alive underneath (it isn't, e.g. when the app is relaunched
+  /// mid-ride and the splash screen restores straight into this screen).
+  /// Also drives the on-screen camera directly from this same local GPS
+  /// stream (see [_updateLocalDriverPosition]) instead of waiting on the
+  /// throttled Firebase round-trip, so the map tracks the driver smoothly
+  /// without needing a manual recenter tap.
+  void _startLiveLocationBroadcast() {
+    _liveLocationSubscription?.cancel();
+    _liveLocationSubscription =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 8,
+          ),
+        ).listen((position) {
+          final point = LatLng(position.latitude, position.longitude);
+          _updateLocalDriverPosition(point);
+          _publishDriverLocation(point);
+        });
+    final point = _driverPoint;
+    if (point != null) {
+      _publishDriverLocation(point);
     }
+  }
+
+  void _stopLiveLocationBroadcast() {
+    _liveLocationSubscription?.cancel();
+    _liveLocationSubscription = null;
+  }
+
+  /// Updates the local driver marker/camera directly from a fresh GPS fix,
+  /// bypassing the Firebase publish/read-back round trip entirely so the
+  /// navigation camera follows in near-real-time. The animate call itself is
+  /// separately throttled (~800ms) because Mapbox's `flyTo` runs a 650ms
+  /// animation that GPS ticks at driving speed (8m distanceFilter) can
+  /// otherwise interrupt/restart before it finishes, which looks jerky.
+  void _updateLocalDriverPosition(LatLng point) {
+    if (!mounted) return;
+    final previous = _driverPoint;
+    setState(() {
+      if (previous != null && previous != point) {
+        _driverBearing = const Distance().bearing(previous, point);
+      }
+      _driverPoint = point;
+    });
+
+    if (!_isVoiceNavigationOn) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastCameraAnimateAt < 800) return;
+    _lastCameraAnimateAt = now;
+    unawaited(_navMapController?.animateCamera(point, 17.5));
+  }
+
+  Future<void> _publishDriverLocation(LatLng point) async {
+    final uid = _authRepository.currentUser?.uid;
+    if (uid == null) return;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastLocationPublishAt < 5000) return;
+    _lastLocationPublishAt = now;
+
+    try {
+      await _databaseRepository.setData('driver_locations/$uid', {
+        'driverId': uid,
+        'lat': point.latitude,
+        'lng': point.longitude,
+        'updatedAt': now,
+      });
+    } catch (_) {}
   }
 }

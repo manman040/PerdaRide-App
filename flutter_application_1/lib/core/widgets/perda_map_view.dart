@@ -49,6 +49,16 @@ class PerdaMapController {
 /// subset of the old `google_maps_flutter` `GoogleMap` API this app used:
 /// a fixed initial camera plus a declarative list of colored markers and
 /// polylines that get resynced whenever they change.
+///
+/// Deliberately left on the plain default Android platform-view hosting
+/// mode (Virtual Display) -- see the comment on the `MapWidget` build below
+/// before changing `androidHostingMode`/`textureView`. VD is the
+/// most-thoroughly-verified-freeze-resistant option on this project's
+/// Android target; its one confirmed downside (Flutter widgets stacked
+/// directly on top of the map don't receive touches) no longer applies
+/// anywhere in this codebase -- every screen keeps interactive controls in
+/// regions that don't spatially overlap a [PerdaMapView]. Keep it that way
+/// rather than reaching for a different hosting mode.
 class PerdaMapView extends StatefulWidget {
   const PerdaMapView({
     super.key,
@@ -84,6 +94,14 @@ class _PerdaMapViewState extends State<PerdaMapView> {
   @override
   Widget build(BuildContext context) {
     return mb.MapWidget(
+      // No androidHostingMode/textureView override -- see the class
+      // docstring above. Hybrid Composition was tried here and caused a
+      // complete, silent freeze reproduced without a debugger attached
+      // (zero log output, no ANR trigger). TLHC avoided that freeze but
+      // still had VD's overlay-touch problem. VD itself is the option most
+      // thoroughly verified freeze-resistant in real, extended,
+      // non-debugger use; its overlay-touch limitation is now a non-issue
+      // since no screen stacks interactive widgets on top of the map.
       cameraOptions: mb.CameraOptions(
         center: widget.initialCenter.toMapboxPoint(),
         zoom: widget.initialZoom,
